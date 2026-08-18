@@ -1,0 +1,191 @@
+openapi_discovery_task:
+  description: >
+    Analyse the following OpenAPI specification:
+
+        {OPENAPI_URL}
+
+    Generate a structured inventory containing:
+        - API title
+        - API version
+        - servers
+        - authentication schemes
+        - endpoints
+        - HTTP methods
+        - summaries
+        - operation IDs
+        - tags
+
+    RULES:
+
+    - Use the OpenAPIDiscoveryTool tool.
+    - You must call the OpenAPIDiscoveryTool before producing the report.
+    - Use only the data returned by the tool.
+    - Do not perform security analysis.
+    - Do not perform BOLA analysis.
+    - Do not perform BFLA analysis.
+    - Do not infer vulnerabilities.
+    - Do not infer missing information.
+    - Do not omit any fields returned by the tool.
+    - Include servers, authentication schemes, operationId, tags, parameters and security information.
+    - Do not summarize the inventory.
+    - Do not modify the tool output.
+    - Only transform the JSON returned by the tool into a well-structured Markdown report.
+
+    CRITICAL INSTRUCTIONS
+
+    - Your response must contain only the final Markdown inventory.
+    - Do not add conclusions.
+    - Do not add explanations.
+    - Do not add notes.
+    - Do not add observations.
+    - Do not add any text before or after the inventory.
+    - Do not explain what you are doing.
+    - Do not explain your reasoning.
+    - Do not describe the tool execution.
+    - Do not write introductory text.
+    - Do not write concluding text.
+      
+    Return only the Markdown report.
+  expected_output: >
+    * OpenAPI Inventory
+
+    ** API Information
+    - Title: <title>
+    - Version: <version>
+
+    ** Servers
+    - <server_url>
+
+    ** Authentication Schemes
+    | Name | Type | Scheme |
+    |------|------|--------|
+
+    ** Endpoints
+    | Method | Path | Operation ID | Tags | Parameters | Security |
+    |--------|------|--------------|------|------------|----------|
+  agent: agent_openapi_dicovery
+  context: >
+    - detective_task
+  output_file: outputs/{module_name}_openapi_discovery.md
+
+
+
+
+
+detective_task:
+  description: >
+    Shadow API Differential Analysis & Attack Surface Mapping for {api_name}:
+
+    PHASE 1 - Ingestão de Dados: 
+    - Analisa a documentação OpenAPI fornecida e extrai todos os caminhos (paths),
+     métodos HTTP e esquemas de dados oficiais.
+
+    PHASE 2 - ANÁLISE DE TRÁFEGO REAL:
+    - Processa os logs de tráfego real (ZAP/6) para identificar endpoints que respondem ativamente.
+
+    PHASE 3 - Deteção de Discrepâncias: 
+    - IMPORTANT: Cruza as duas fontes para identificar Shadow APIs (endpoints no tráfego mas ausentes no Swagger) 
+      e Zombie APIs (versões antigas/deprecated ainda ativas).
+
+    PHASE 4 - Identificação de "Unsafe Consumption": 
+    - Identifica endpoints que consomem dados de terceiros (webhooks, integrações externas) 
+      onde a API pode estar a confiar cegamente no input.
+
+    PHASE 5 - Priorização Red Team: 
+    - Classifica cada achado com base no risco de exploração de BOLA ou BFLA.
+
+  expected_output: >
+   ### 🎯 Resumo da Superfície de Ataque REST
+- **Endpoints Oficiais Analisados:** [X]
+- **Shadow APIs Detetadas:** [Lista de URLs e Métodos]
+- **Zombie/Legacy APIs:** [Lista de endpoints suspeitos de obsolescência]
+
+### 🔍 Análise de Discrepâncias (Gaps)
+| Endpoint | Método | Status (Doc vs Live) | Risco Potencial (BOLA/BFLA) |
+
+| /api/v1/internal/debug | POST | Shadow API | Crítico (Acesso administrativo exposto) |
+| /api/users/{id}/config | GET | Documentado | Alto (Alvo óbvio para BOLA) |
+
+### Vetores de Unsafe Consumption
+- [Endpoint]: Identificado ponto de integração com [Terceiro]. Risco de injeção via resposta de API externa.
+
+### 🚀 Plano de Transição para Layer 2
+- Lista de 3 a 5 "Quick Wins" para o Architect desenhar a estratégia de ataque imediata.
+
+  agent: agent_detective
+  output_file: outputs/{module_name}_detective.md
+
+architect_task:
+  description: >
+    DESIGN EXPLOITATION STRATEGIES FOR IDENTIFIED SHADOW APIS
+
+    FASE 3 - CRUZAMENTO E DETECÇÃO:
+    - Comparar endpoints do tráfego com os documentados
+    - Identificar SHADOW APIS (presentes no tráfego, ausentes na doc)
+    - Para cada shadow API encontrada, avaliar:
+      * Método HTTP utilizado
+      * Status code retornado
+      * Potencial para ataques BOLA (Broken Object Level Authorization)
+      * Nível de severidade (Crítico/Alto/Médio/Baixo)
+  expected_output: >
+    Estratégia de testes focada em compliance 
+    Plano de exploração detalhado com prioridades
+  agent: agent_architect
+  context: >
+    - detective_task
+  output_file: outputs/{module_name}_architect.md
+
+inference_task:
+  description: >
+    EXECUTE TESTS AND COLLECT EVIDENCE FOR IDENTIFIED VULNERABILITIES
+
+    FASE 4 - CLASSIFICAÇÃO DE RISCOS:
+    - BOLA: Endpoints que manipulam objetos por ID sem auth
+    - BFLA: Endpoints com funções administrativas expostas
+    - Information Disclosure: Endpoints que vazam dados sensíveis
+    - Shadow APIs: Endpoints não documentados
+  expected_output: >
+    Evidências técnicas com timeline
+    Resultados de testes com evidências brutas
+  agent: agent_inference
+  context: >
+    - architect_task
+  output_file: outputs/{module_name}_inference.md
+
+validator_task:
+  description: >
+    VALIDATE ALL FINDINGS AND ELIMINATE FALSE POSITIVES:
+
+    FASE 5 - RECOMENDAÇÕES:
+    - Prioridade de correção
+    - Ações específicas para cada shadow API
+  expected_output: >
+   Vulnerabilidades validadas com mapping NIS2
+   Lista validada de vulnerabilidades com classificação final
+  agent: agent_validator
+  context: >
+    - inference_task
+  output_file: outputs/{module_name}_validator.md
+
+reporter_task:
+  description: >
+    GENERATE NIS2 COMPLIANCE REPORT:
+
+    PHASE 1 - ANÁLISE DE DOCUMENTAÇÃO OFICIAL:
+    - Usar Swagger Reader para acessar: {url}
+    - Extrair TODOS os endpoints documentados oficialmente
+    - Criar lista de referência de endpoints legítimos
+
+    PHASE 2 - ANÁLISE DE TRÁFEGO REAL:
+    - Extrair endpoints ativos observados no tráfego real usando a ferramenta Nuclei scan
+    - Analisar o arquivo: logs/zap_traffic.json
+    - Identificar shadow APIs (endpoints no tráfego mas não na doc)
+  expected_output: >
+   Relatório NIS2 completo com evidências e recomendações legais
+  agent: agent_reporter
+  context: >
+    - detective_task
+    - architect_task
+    - inference_task
+    - validator_task
+  output_file: outputs/{module_name}_reporter.md

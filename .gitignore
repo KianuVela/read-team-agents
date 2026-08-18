@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and local config
+.env
+*.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Local outputs / evidence
+outputs/
+logs/
+reports/
+tmp/
+temp/
+
+# Tests
+tests/
+
+# Runtime/generated lab context
+authentication_context*.json
+object_context*.json
+authorization_evidence_summary*.json
+authorization_evidence_summary*.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

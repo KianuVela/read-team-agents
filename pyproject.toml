@@ -1,0 +1,28 @@
+[project]
+name = "red_team_agents"
+version = "0.1.0"
+description = "red_team_agents using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]==1.9.3",
+    "fastmcp==3.2.3",
+    "mcp==1.26.0",
+    "prance",
+    "openapi-spec-validator"
+]
+
+[project.scripts]
+red_team_agents = "red_team_agents.main:run"
+run_crew = "red_team_agents.main:run"
+train = "red_team_agents.main:train"
+replay = "red_team_agents.main:replay"
+test = "red_team_agents.main:test"
+run_with_trigger = "red_team_agents.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"

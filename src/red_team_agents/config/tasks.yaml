@@ -1,0 +1,2066 @@
+attack_surface_discovery_task:
+   description: >
+      Perform live attack surface discovery against the target application.
+
+      Target host:
+      {target_host}
+
+      Target URL:
+      {target_url}
+
+      Use the Kali MCP Tool to execute the following reconnaissance activities:
+
+      1. Run Nmap for service discovery:
+       - tool: nmap
+       - args: -sV -Pn {target_host}
+
+      2. Run Gobuster for directory and endpoint discovery:
+       - tool: gobuster
+       - args: dir -u {target_url} -w /usr/share/wordlists/dirb/common.txt -k
+
+      3. Use curl to probe and enrich the most relevant live paths discovered by Gobuster.
+       Prioritise likely application/API roots and interesting reachable resources such as:
+       - /identity/
+       - /community/
+       - /workshop/
+       - /health
+       - /healthcare
+       - /robots.txt
+
+       For curl probing:
+       - Use curl against the discovered live URLs
+       - Collect useful evidence such as:
+         - response status
+         - redirects
+         - response headers if relevant
+         - whether the response appears to be HTML, JSON, health/status output or another content type
+         - any visible hints about API structure, modules, authentication, swagger/openapi references, or versioned routes
+
+      4. Run Nikto against the target URL to enrich the live web attack surface inventory.
+       - tool: nikto
+       - args: -h {target_url}
+
+       Use Nikto findings to identify:
+       - interesting HTTP headers
+       - exposed files or directories
+       - technology fingerprints
+       - potentially risky web server or application misconfigurations
+       - notable security observations relevant to attack surface understanding
+
+      Your objectives are:
+      - Identify open ports
+      - Identify running services and versions
+      - Identify exposed directories, paths and potentially reachable endpoints
+      - Identify likely application/API roots
+      - Enrich the live inventory with evidence from curl probing
+      - Enrich the live inventory with Nikto web findings
+      - Produce a consolidated live attack surface inventory
+
+      IMPORTANT REPORTING INSTRUCTIONS:
+      Organise the discovered web resources into the following categories:
+
+      1. Likely application/API roots
+       - Mark paths such as /identity/, /community/, /workshop/ as likely application/API roots
+         when they appear to represent service domains, application modules or business areas.
+       - These are usually top-level paths that look like functional modules rather than static assets.
+
+      2. Other reachable resources
+       - Include reachable paths that do not clearly represent an application root,
+         but may still be interesting for later analysis, such as /health or /healthcare.
+
+      3. Static/common files and assets
+       - Include static or generic resources such as /images/, /static/, /robots.txt, /index.html.
+
+      4. Curl probe findings
+       - For the most relevant live paths, provide a concise summary of what curl revealed.
+       - Note whether the path redirects, returns HTML, returns JSON, looks like a health endpoint,
+         or reveals any API-related hints.
+
+      5. Nikto findings
+       - Summarise the most relevant Nikto findings that help characterise the live web attack surface.
+       - Focus on findings that improve understanding of:
+         - web technologies
+         - exposed files or directories
+         - security headers or missing protections
+         - unusual or risky web behaviour
+       - Avoid copying excessive raw Nikto output; summarise the useful findings clearly.
+
+      Classification guidance:
+      - Treat top-level functional paths as likely application/API roots when they look like named service domains.
+      - Do NOT classify static assets or generic files as API roots.
+      - If unsure, explain briefly why a path was placed in a category.
+
+   expected_output: >
+    Markdown report containing:
+    - Target host scanned
+    - Target URL analysed
+    - Nmap command used
+    - Gobuster command used
+    - Curl commands or curl probing summary
+    - Nikto command used
+    - Open ports
+    - Services and versions
+    - Likely application/API roots
+    - Other reachable resources
+    - Static/common files and assets
+    - Curl probe findings
+    - Nikto findings
+    - Consolidated live attack surface summary
+
+
+   output_file: reports/attack_surface_inventory.md
+
+   agent: agent_attack_surface_discovery
+
+openapi_discovery_task:
+   description: >
+      Analyse the OpenAPI specification available at:
+      {openapi_url}
+      Use OpenAPIDiscoveryTool with spec_url={openapi_url} to:
+
+      - Download the specification
+      - Parse the specification
+      - Extract endpoints
+      - Extract parameters
+      - Extract authentication mechanisms
+      - Generate an API inventory
+
+   expected_output: >
+      Markdown report containing:
+      - Complete OpenAPI inventory.
+
+   context:
+      - attack_surface_discovery_task
+
+   output_file: reports/openapi_inventory.md
+
+   agent: agent_openapi_discovery
+
+shadow_api_detection_task:
+   description: >
+    Analyse the relationship between the documented API inventory
+    and the live attack surface inventory in order to identify:
+    - documented API domains and documented API base paths
+    - live undocumented API-like resources
+    - possible shadow API candidates
+    - sensitive non-API web findings
+    - high-priority areas for deeper probing
+
+    You must use the following two artefacts as your primary inputs.
+
+    ==================================================
+    DOCUMENTED API INVENTORY
+    ==================================================
+    {openapi_inventory}
+
+    ==================================================
+    LIVE ATTACK SURFACE INVENTORY
+    ==================================================
+    {attack_surface_inventory}
+
+    Your job is to compare what is documented in the OpenAPI
+    inventory against what was actually observed in the live
+    environment.
+
+    You must produce a conservative and evidence-based comparison.
+
+    ==================================================
+    REQUIRED ANALYSIS OUTPUT STRUCTURE
+    ==================================================
+
+    1. Documented API roots or service domains
+       - infer the major documented service domains from the
+         OpenAPI inventory
+       - examples may include identity, community, workshop, etc.
+
+    2. Documented API base paths
+       - explicitly identify the main documented API base path
+         prefixes from the OpenAPI inventory
+       - examples may include:
+         - /identity/api/
+         - /community/api/
+         - /workshop/api/
+       - if there are important sub-prefixes or versioned families,
+         mention them briefly
+
+    3. Live application/API roots discovered
+       - identify the live top-level application roots discovered
+         during attack surface discovery
+       - examples may include /identity/, /community/, /workshop/
+
+    4. Live undocumented service/API-like resources
+       - list reachable live resources that appear functional,
+         service-related or API-adjacent, but are not clearly
+         represented in the OpenAPI inventory
+       - examples may include /health or /healthcare
+       - these are different from generic web assets or static files
+
+    5. Live non-API web findings
+       - list live findings that are not APIs and not API-like
+         service endpoints, but are still relevant to the exposed
+         attack surface
+       - examples may include:
+         - /.env
+         - /robots.txt
+         - /index.html
+         - /images/
+         - /static/
+       - these should be treated separately from possible shadow API
+         findings
+
+    6. Potential shadow API candidates
+       - identify roots/resources that may indicate undocumented or
+         insufficiently documented API exposure
+       - be conservative
+       - do NOT claim confirmed shadow APIs unless the evidence is
+         strong
+
+       For each potential shadow API candidate, you MUST include
+       the following four elements:
+
+       1. Candidate
+          - the live root/resource being assessed
+
+       2. Live observation
+          - explain what was observed in the live attack surface
+          - examples:
+            - root reachable but returns 502
+            - live service-like endpoint returns 200 OK
+            - route exists but exact root returns 404
+            - undocumented health endpoint is exposed
+
+       3. Documented base path
+          - identify the most relevant documented API base path
+            from the OpenAPI inventory that is related to the
+            candidate
+          - examples:
+            - /identity/api/
+            - /community/api/
+            - /workshop/api/
+          - if there is no clearly related documented base path,
+            explicitly say so
+
+       4. GAP
+          - explicitly describe the gap between the live observed
+            behavior/resource and the documented API structure
+          - examples of valid gap statements:
+            - "Live root exists, but only /identity/api/ is
+              documented; root-level behavior is not represented
+              in the OpenAPI inventory."
+            - "Endpoint behaves like a health/service endpoint,
+              but no equivalent documented API path exists."
+            - "Live route family appears exposed, but the exact
+              documented API base path does not explain the root
+              behavior observed in the live environment."
+
+       Also include a confidence level for each candidate:
+       - High confidence
+       - Moderate confidence
+       - Low confidence
+
+    7. Sensitive or suspicious live findings
+       - identify the most important suspicious live findings,
+         whether API-related or not
+       - examples:
+         - exposed .env files
+         - undocumented health endpoints
+         - proxy/backend anomalies
+         - suspicious live routes
+
+    8. Candidate areas for deeper probing
+       - prioritise the most relevant roots/resources for later
+         testing phases
+
+    ==================================================
+    CONFIDENCE MODEL
+    ==================================================
+
+    For each item in the following sections:
+    - Live undocumented service/API-like resources
+    - Potential shadow API candidates
+    - Sensitive or suspicious live findings
+
+    assign a confidence level:
+    - High confidence
+    - Moderate confidence
+    - Low confidence
+
+    Use the confidence labels conservatively:
+    - High confidence = clearly supported by direct evidence
+    - Moderate confidence = plausible and supported, but not fully
+      conclusive
+    - Low confidence = weak hypothesis or limited evidence
+
+    ==================================================
+    IMPORTANT ANALYSIS RULES
+    ==================================================
+    - Clearly distinguish between:
+      a) documented API exposure
+      b) live undocumented API-like resources
+      c) possible shadow API candidates
+      d) non-API web findings
+    - Use the documented inventory block above as the authoritative
+      source for documented API structure.
+    - Use the live attack surface inventory block above as the
+      authoritative source for observed live exposure.
+    - Where the evidence is suggestive but not conclusive, label it
+      as a hypothesis or candidate rather than a confirmed shadow API.
+    - If a finding is serious but not API-related (for example an
+      exposed .env file), keep it in the report, but do not
+      misclassify it as an API.
+      
+   expected_output: >
+    Markdown report containing:
+    - Documented API roots or service domains
+    - Documented API base paths
+    - Live application/API roots discovered
+    - Live undocumented service/API-like resources
+    - Live non-API web findings
+    - Potential shadow API candidates
+      (each candidate must include:
+       Candidate, Live observation, Documented base path,
+       GAP, Confidence)
+    - Sensitive or suspicious live findings
+    - Candidate areas for deeper probing
+    - Overall shadow API assessment summary
+
+   context:
+      - attack_surface_discovery_task
+      - openapi_discovery_task
+
+   output_file: reports/shadow_api_detection_report.md
+
+   agent: agent_shadow_api_detection
+
+
+threat_modeling_task:
+   description: >
+    Perform API threat modeling focused primarily on:
+    - Broken Object Level Authorization (BOLA)
+    - Broken Function Level Authorization (BFLA)
+
+    Use the following artefacts as input:
+
+    ==================================================
+    DOCUMENTED API INVENTORY
+    ==================================================
+    {openapi_inventory}
+
+    ==================================================
+    LIVE ATTACK SURFACE INVENTORY
+    ==================================================
+    {attack_surface_inventory}
+
+    ==================================================
+    SHADOW API DETECTION REPORT
+    ==================================================
+    {shadow_api_report}
+
+    Your mission is to transform discovery findings and shadow API
+    analysis into structured, testable threat hypotheses centred on
+    BOLA and BFLA.
+
+    ==================================================
+    ANALYSIS FOCUS
+    ==================================================
+
+    Your primary focus is:
+
+    1. BOLA threat modeling
+       - Identify endpoints, resources and operations involving
+         object identifiers or object references.
+       - Look for user-owned or tenant-owned resources that may be
+         vulnerable to unauthorized access or manipulation.
+       - Consider whether object identifiers such as user IDs,
+         vehicle IDs, post IDs, order IDs, report IDs, coupon IDs,
+         video IDs or similar identifiers may be exposed in ways that
+         could allow access to other users' resources.
+
+    2. BFLA threat modeling
+       - Identify operations, routes or functions that may require
+         privileged roles, elevated permissions or business-function
+         restrictions.
+       - Look for admin, management, mechanic, merchant, moderation,
+         reporting or maintenance functions that should not be
+         available to normal users.
+       - Consider whether undocumented live routes or service roots
+         may expose additional privileged functions not clearly
+         represented in the OpenAPI inventory.
+
+    ==================================================
+    IMPORTANT SCOPE RULES
+    ==================================================
+
+    - Keep the report centred on BOLA and BFLA.
+    - You may mention other security issues only if they help explain
+      or prioritise BOLA/BFLA testing.
+    - Do not turn this into a generic OWASP API Top 10 report.
+    - Do not generate exploit payloads.
+    - Do not claim exploitation.
+    - Produce threat hypotheses and testing priorities only.
+
+    ==================================================
+    REQUIRED OUTPUT STRUCTURE
+    ==================================================
+
+    1. Threat modeling scope
+       - Summarise the artefacts analysed
+       - Briefly describe the documented API families, live roots and
+         shadow-related findings that are relevant to BOLA/BFLA
+
+    2. High-priority BOLA attack surfaces
+       - Identify the API domains, resource families and endpoint
+         groups that are most likely to contain BOLA risk
+       - For each one, explain why it is relevant to object-level
+         authorization
+
+    3. High-priority BFLA attack surfaces
+       - Identify the API domains, privileged functions and endpoint
+         groups that are most likely to contain BFLA risk
+       - For each one, explain why it is relevant to function-level
+         authorization
+
+    4. BOLA candidate analysis
+       For each BOLA candidate, include:
+       - Domain / service area
+       - Relevant endpoint family or resource pattern
+       - Example object identifiers or object references involved
+       - Why the resource may require ownership or object-level checks
+       - Threat hypothesis
+       - Priority (High / Medium / Low)
+
+       You should pay special attention to endpoints/resources
+       involving:
+       - user profiles
+       - vehicles
+       - posts / comments / videos / community content
+       - orders / reports / workshop resources
+       - coupons or user-linked records
+       - any resource returned by object ID or path parameter
+
+    5. BFLA candidate analysis
+       For each BFLA candidate, include:
+       - Domain / service area
+       - Relevant function, route or operation
+       - Why it appears role-restricted or privilege-sensitive
+       - Threat hypothesis
+       - Priority (High / Medium / Low)
+
+       You should pay special attention to:
+       - admin or management operations
+       - mechanic or workshop privileged workflows
+       - merchant or inventory management functions
+       - moderation or reporting actions
+       - state-changing operations that should not be available to
+         standard users
+
+    6. Shadow-related BOLA/BFLA hypotheses
+       - Use the Shadow API Detection Report only where it helps
+         formulate BOLA or BFLA hypotheses
+       - Examples:
+         - undocumented service-like endpoints that may expose object
+           access or privileged functionality
+         - live roots whose behavior suggests additional routes or
+           backend functions outside the documented OpenAPI surface
+       - Clearly explain whether each shadow-related finding is more
+         relevant to BOLA, BFLA or neither
+
+    7. Prioritized BOLA/BFLA test objectives
+       - Produce a focused list of test objectives that the Test
+         Planning Agent can convert into concrete test cases
+       - Separate the objectives into:
+         a) BOLA test objectives
+         b) BFLA test objectives
+
+    8. Top 10 prioritized BOLA/BFLA targets
+       - Produce a final ranked Top 10 list combining the most
+         important BOLA and BFLA candidates identified in the report
+       - This section is intended to guide the Test Planning Agent
+         toward the most important validation targets first
+
+       For each ranked item include:
+       - Rank
+       - Type (BOLA or BFLA)
+       - Domain / service area
+       - Endpoint, route family or resource pattern
+       - Short threat hypothesis
+       - Why it is high priority
+       - Suggested testing focus
+
+       Ranking guidance:
+       - Prioritize candidates that involve sensitive user-owned
+         resources, privileged functions, bulk data access, state-
+         changing operations, or hidden/undocumented routes that may
+         affect authorization boundaries
+       - Prefer concrete, testable targets over generic observations
+
+    ==================================================
+    FINAL REPORTING RULES
+    ==================================================
+
+    - Be conservative and evidence-based.
+    - Use the OpenAPI inventory as the main source for documented
+      resource and function structure.
+    - Use the live attack surface and shadow report as supporting
+      evidence for undocumented or suspicious exposure.
+    - Prefer concrete, testable authorization hypotheses over generic
+      security commentary.
+    - If a finding is interesting but not clearly relevant to BOLA or
+      BFLA, mention it briefly only if it materially affects testing
+      priority; otherwise leave it out.
+
+   expected_output: >
+    Markdown threat modeling report focused on BOLA and BFLA,
+    containing:
+    - Threat modeling scope
+    - High-priority BOLA attack surfaces
+    - High-priority BFLA attack surfaces
+    - BOLA candidate analysis
+    - BFLA candidate analysis
+    - Shadow-related BOLA/BFLA hypotheses
+    - Prioritized BOLA test objectives
+    - Prioritized BFLA test objectives
+    - Top 10 prioritized BOLA/BFLA targets
+
+   context:
+      - attack_surface_discovery_task
+      - openapi_discovery_task
+      - shadow_api_detection_task
+
+   output_file: reports/threat_modeling.md
+
+   agent: agent_threat_modeling
+
+
+test_planning_task:
+   description: >
+    Create a focused API security test plan centred on:
+    - Broken Object Level Authorization (BOLA)
+    - Broken Function Level Authorization (BFLA)
+
+    Use the following artefacts as input:
+
+    ==================================================
+    DOCUMENTED API INVENTORY
+    ==================================================
+    {openapi_inventory}
+
+    ==================================================
+    LIVE ATTACK SURFACE INVENTORY
+    ==================================================
+    {attack_surface_inventory}
+
+    ==================================================
+    SHADOW API DETECTION REPORT
+    ==================================================
+    {shadow_api_report}
+
+    ==================================================
+    THREAT MODELING REPORT
+    ==================================================
+    {threat_modeling_report}
+
+    Your job is to transform the threat hypotheses into a structured,
+    prioritized set of test cases ready for later execution.
+
+    ==================================================
+    PRIMARY OBJECTIVE
+    ==================================================
+
+    Produce a practical BOLA/BFLA test plan that tells the execution
+    phase exactly:
+    - which endpoint or route family to test
+    - what object or function should be exercised
+    - which account/role contexts are required
+    - what request manipulation or access attempt should be tried
+    - what secure behavior is expected
+    - what evidence should be captured
+
+    ==================================================
+    IMPORTANT SCOPE RULES
+    ==================================================
+
+    - Focus primarily on BOLA and BFLA.
+    - Do not generate exploit payloads.
+    - Do not claim exploitation or successful compromise.
+    - Do not produce low-level step-by-step offensive commands.
+    - Produce structured, defensive security test cases only.
+    - Shadow or non-API findings should only appear where they help
+      plan BOLA/BFLA validation or exploratory authorization testing.
+
+    ==================================================
+    REQUIRED OUTPUT STRUCTURE
+    ==================================================
+
+    1. Planning scope
+       - Summarise the artefacts analysed
+       - Summarise the main BOLA/BFLA priorities inherited from the
+         Threat Modeling Report
+
+    2. Test campaign overview
+       - Summarise the most important testing themes
+       - Separate the campaign into:
+         a) BOLA validation
+         b) BFLA validation
+         c) Shadow-related exploratory authorization checks
+
+    3. BOLA test cases
+       For each BOLA test case, include ALL of the following:
+
+       - Test case ID
+       - Test type: BOLA
+       - Domain / service area
+       - HTTP method
+       - Target endpoint path
+       - Object reference under test
+         (for example vehicleId, order_id, report_id, video_id,
+          postId, email-linked object, coupon-linked record, etc.)
+       - Input vector under test
+         (for example path parameter, query parameter, body field,
+          header value, cookie, token-bound object lookup, or bulk
+          collection scoping)
+       - Threat hypothesis
+       - Why this object is sensitive / ownership-bound
+       - Required preconditions
+       - Baseline authorized actor
+         (the user or role that should legitimately be able to access
+          the object)
+       - Negative test actor
+         (the user or role that must NOT be able to access the object)
+       - Required user/account context
+         (for example: user A + user B, or owner account +
+          non-owner account)
+       - Test idea / validation objective
+         (describe the authorization check to validate, without
+          writing exploit instructions)
+       - Expected secure behavior
+       - Evidence to capture
+         (status codes, response body differences, error messages,
+          resource visibility, ownership enforcement indicators)
+
+    4. BFLA test cases
+       For each BFLA test case, include ALL of the following:
+
+       - Test case ID
+       - Test type: BFLA
+       - Domain / service area
+       - HTTP method
+       - Target endpoint path
+       - Privileged function under test
+       - Input vector under test
+         (for example role boundary only, path parameter, query
+          parameter, body field, header value, cookie, or token-bound
+          workflow step)
+       - Threat hypothesis
+       - Why the function appears privilege-restricted
+       - Required preconditions
+       - Baseline authorized actor
+         (the user or role that should legitimately be able to perform
+          the privileged function)
+       - Negative test actor
+         (the user or role that must NOT be able to perform the
+          privileged function)
+       - Required user/account/role context
+         (for example: standard user vs admin, standard user vs
+          mechanic, standard user vs management, etc.)
+       - Test idea / validation objective
+         (describe the authorization boundary to validate, without
+          writing exploit instructions)
+       - Expected secure behavior
+       - Evidence to capture
+         (status codes, access denied behavior, role-specific
+          responses, state-change refusal, etc.)
+
+    5. Shadow-related exploratory authorization checks
+       - Include only exploratory checks that are genuinely relevant
+         to BOLA/BFLA
+       - For each one include:
+         - target root/resource
+         - why it matters to authorization testing
+         - what kind of follow-up validation should be performed
+         - what evidence should be captured
+
+    6. Execution prioritization queue
+       Build a final ranked execution queue.
+
+       Include:
+       - Rank
+       - Test case ID
+       - Test type (BOLA/BFLA)
+       - Domain
+       - Target endpoint / route family
+       - Short reason for priority
+       - Suggested evidence focus
+
+       Prioritise:
+       - direct object references tied to sensitive user data
+       - state-changing operations on user-owned objects
+       - admin / management / mechanic / merchant functions
+       - bulk data exposure functions
+       - shadow-related routes that may widen authorization exposure
+
+    ==================================================
+    QUALITY RULES
+    ==================================================
+
+    - Prefer concrete, testable cases over generic commentary.
+    - If the Threat Modeling Report identified a Top 10 target,
+      convert it into a concrete test case whenever possible.
+    - Keep the language execution-oriented but not exploit-oriented.
+    - Ensure the output is useful as an input to a later execution
+      agent.
+
+
+   expected_output: >
+    Markdown BOLA/BFLA test planning report containing:
+    - Planning scope
+    - Test campaign overview
+    - BOLA test cases
+    - BFLA test cases
+    - Shadow-related exploratory authorization checks
+    - Final execution prioritization queue
+
+   context:
+      - threat_modeling_task
+
+   output_file: reports/test_planning_report.md
+
+   agent: agent_test_planning
+
+execution_task:
+   description: >
+    Execute a controlled subset of the planned API security validation
+    cases, focusing on:
+    - Broken Object Level Authorization (BOLA)
+    - Broken Function Level Authorization (BFLA)
+
+    Use the following artefacts as input:
+
+    ==================================================
+    DOCUMENTED API INVENTORY
+    ==================================================
+    {openapi_inventory}
+
+    ==================================================
+    LIVE ATTACK SURFACE INVENTORY
+    ==================================================
+    {attack_surface_inventory}
+
+    ==================================================
+    SHADOW API DETECTION REPORT
+    ==================================================
+    {shadow_api_report}
+
+    ==================================================
+    THREAT MODELING REPORT
+    ==================================================
+    {threat_modeling_report}
+
+    ==================================================
+    TEST PLANNING REPORT
+    ==================================================
+    {test_planning_report}
+
+
+
+    ==================================================
+    COGNITIVE EXECUTION INITIALIZATION
+    ==================================================
+
+
+    The execution artefacts are available at:
+
+    - Authentication Context:
+      {authentication_context_file}
+
+    - Object Discovery Context:
+      {object_context_file}
+
+    - Test Plan:
+      {test_plan_file}
+
+    When sufficient context has been collected,
+    invoke ExecutionControllerTool using these file paths.
+
+    Invoke ExecutionControllerTool before executing any
+    validation case.
+
+    Provide:
+
+    - the Test Planning Report;
+    - the Authentication Context;
+    - the Object Discovery Context.
+
+    The ExecutionControllerTool is responsible for:
+
+    - building the ExecutionContext;
+    - constructing the ResourceModel instances;
+    - initializing the cognitive execution workflow;
+    - invoking the ExecutionController;
+    - executing the complete decision loop.
+
+    Do not manually reproduce the cognitive execution
+    workflow inside this task.
+
+    Use the execution evidence returned by the
+    ExecutionControllerTool as the authoritative
+    execution evidence for the remainder of this task.
+
+
+    ==================================================
+    EXECUTION CONTROLLER
+    ==================================================
+
+    After AuthenticationContextTool,
+    ObjectDiscoveryTool,
+    and Test Planning have completed,
+
+    invoke ExecutionControllerTool using:
+
+    authentication_context_file:
+    {authentication_context_file}
+
+    object_context_file:
+    {object_context_file}
+
+    test_plan_file:
+    {test_plan_file}
+
+    The tool is responsible for loading the JSON artefacts
+    and executing the cognitive execution pipeline.
+
+   
+    ==================================================
+    EXECUTION CONTEXTS
+    ==================================================
+
+    The Authentication Context will be generated by the
+    AuthenticationContextTool and provides:
+
+    - authenticated identities
+    - JWT tokens
+    - authentication profile
+    - authorization context
+
+    The Object Discovery Context will be generated by the
+    ObjectDiscoveryTool using the Authentication Context
+    and provides:
+
+    - selected identity
+    - discovered resources
+    - object identifiers
+    - response structure
+    - resource prioritization
+
+    Use the generated contexts during every execution activity.
+
+
+    ==================================================
+    TOOL EXECUTION SEQUENCE
+    ==================================================
+
+    Follow this tool execution sequence strictly:
+
+    1. Invoke AuthenticationContextTool first.
+
+    Use it to:
+
+    - discover the authentication profile
+    - authenticate the available identities
+    - generate JWT tokens
+    - discover candidate object endpoints
+
+    The tool will persist the Authentication Context in:
+
+    outputs/execution/authentication_context.json
+
+    Always use the generated file.
+    Do not recreate the Authentication Context manually.
+
+    2. Invoke ObjectDiscoveryTool second.
+
+    Provide the authentication_context.json file
+    generated by AuthenticationContextTool.
+
+    The tool will:
+
+    - probe accessible resources
+    - identify the most suitable authenticated identity 
+    - discover object identifiers
+    - characterize response structures
+
+    The tool will persist the Object Context in:
+
+    outputs/execution/object_context.json
+
+    Always use the generated file.
+    Do not recreate the Object Context manually.
+
+
+    3. Invoke FileReadTool third.
+
+    Read the generated file:
+
+    outputs/execution/object_context.json
+
+    Use the file content as the authoritative execution context.
+
+    Retrieve from it:
+
+    - the target URL
+    - available JWT tokens
+    - selected identities
+    - resource endpoints
+    - HTTP methods
+    - discovered object identifiers
+    - resource accessibility information
+
+    Do not guess or recreate values that are already present
+    in the generated file.
+
+
+    ==================================================
+    CONTEXT VALIDATION
+    ==================================================
+
+    Before executing any planned validation case,
+    analyse the execution context loaded from
+    object_context.json.
+
+    For every planned BOLA or BFLA validation case,
+    verify the availability of:
+
+    - endpoint
+    - HTTP method
+    - authenticated identity
+    - JWT token
+    - object identifier
+    - response type
+
+    Determine whether the validation case is:
+
+    - Executable
+    - Inconclusive
+    - Not Executable
+
+    Never invent or assume missing execution
+    information.
+
+    If any required execution context is unavailable,
+    explain precisely which element is missing before
+    continuing to analyse the next planned case.
+
+
+    4. Invoke KaliMCPTool fourth.
+
+    Use the curl capability from Kali MCP to execute
+    the planned BOLA and BFLA validation requests
+    using the values read from object_context.json.
+
+    Do not use KaliMCPTool before the Authentication
+    Context and Object Discovery Context are available.
+
+    Use object_context.json as the authoritative
+    execution context.
+
+    Retrieve from it:
+
+    - selected identity
+    - JWT token
+    - endpoint
+    - object identifiers
+
+    Construct the curl requests from this context.
+
+    5. Invoke FileWriterTool fifth.
+
+    After all executable cases have been attempted,
+    persist the structured execution evidence in:
+
+    outputs/execution/execution_log.json
+
+    The JSON log must contain only cases for which
+    KaliMCPTool was actually invoked.
+
+    Do not finish the task before the file has been
+    written successfully.
+
+    6. Execute only validation cases that can be supported
+    by:
+
+    - authentication_context.json
+    - object_context.json
+    - the planned test cases
+
+    If any required information is missing,
+    do not guess.
+
+    Mark the case as:
+
+    - Inconclusive
+    - Not Executed
+
+    and clearly explain the missing evidence.
+
+
+    ==================================================
+    PRIMARY OBJECTIVE
+    ==================================================
+
+    Execute a controlled and evidence-driven subset of the highest
+    priority BOLA/BFLA test cases from the test planning report.
+
+    You are NOT expected to execute every test case in the report.
+    Instead, focus first on the highest-priority cases that are
+    executable with the available authentication and object discovery contexts.
+
+    ==================================================
+    EXECUTION RULES
+    ==================================================
+
+    1. Only execute cases when the required authentication and object discovery contexts are available.
+       If a test case requires owner vs non-owner comparison and one of
+       the required tokens is missing, do not fake it.
+
+    2. If a case is fundamentally an authorization comparison and the
+       required authenticated actor context is missing, do NOT attempt
+       unauthenticated probing unless the test case explicitly concerns
+       unauthenticated access behavior.
+
+       This means:
+       - do not probe authenticated user endpoints anonymously just to
+         "see what happens"
+       - do not treat an unauthenticated 401, 403, 404, or 502 response
+         as meaningful BOLA/BFLA evidence when the planned test requires
+         actor-to-actor comparison
+       - instead, mark the case as Not executed or Inconclusive due to
+         missing authenticated context
+
+    3. Prefer the top-ranked executable cases from the
+        execution prioritization queue using the available
+        authentication and object discovery contexts.
+
+    4. Focus on evidence-based comparative testing such as:
+       - owner vs non-owner
+       - admin vs standard user
+       - mechanic vs standard user
+       - management vs standard user
+
+    5. Use controlled HTTP requests only.
+       Do not perform destructive testing beyond what is necessary to
+       validate authorization behavior.
+       If a state-changing request is potentially destructive, clearly
+       note that it is a controlled validation attempt.
+
+    6. Do not claim exploitation unless the evidence clearly supports
+       it. The result categories must be:
+       - Confirmed
+       - Not confirmed
+       - Inconclusive
+       - Not executed
+
+    ==================================================
+    IMPORTANT TOOL USAGE RULES
+    ==================================================
+
+    You have access to the Kali MCP Tool.
+
+    Use ONLY the Kali MCP Tool for execution.
+
+    The Kali MCP Tool expects:
+    - tool = the name of the Kali/MCP tool to run
+    - args = the arguments for that tool
+
+    For HTTP validation requests, the correct MCP tool name is:
+    - curl
+
+    Therefore, when you need to perform HTTP requests, you MUST call
+    the Kali MCP Tool with:
+    - tool: curl
+    - args: <curl arguments only>
+
+    Examples of correct Kali MCP Tool usage:
+    - tool: curl
+      args: -i -s -X GET "http://example/api/resource" -H "Authorization: Bearer <token>"
+
+    - tool: curl
+      args: -i -s -X POST "http://example/api/resource" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"a":"b"}'
+
+    - tool: curl
+      args: -i -s -X DELETE "http://example/api/resource/123" -H "Authorization: Bearer <token>"
+
+    DO NOT call:
+    - tool: bash
+    - tool: sh
+    - tool: shell
+    - tool: powershell
+    - tool: cmd
+
+    DO NOT wrap curl inside bash or shell.
+    WRONG example:
+    - tool: bash
+      args: curl -i -s ...
+
+    CORRECT example:
+    - tool: curl
+      args: -i -s -X GET "http://example/api/resource"
+
+    ==================================================
+    HOW TO EXECUTE EACH CASE
+    ==================================================
+
+    For each selected test case:
+
+    A. Read the test case details from the planning report:
+       - test case ID
+       - BOLA or BFLA
+       - endpoint
+       - method
+       - baseline actor
+       - negative actor
+       - object or function under test
+       - expected secure behavior
+
+    B. Decide whether the case is executable using the
+        available authentication context and object
+        discovery context.
+
+    C. If executable, perform the validation using HTTP requests
+        constructed from the available execution contexts
+        and executed through the Kali MCP curl tool.
+
+    D. Retrieve the appropriate authenticated identity
+        and JWT token from the Authentication Context.
+
+    E. Comparative validation pattern:
+       - first run the baseline authorized request where relevant
+       - then run the negative / unauthorized request
+       - compare status codes, body behavior, and authorization outcomes
+
+    F. For BOLA cases, prefer validation patterns such as:
+       - same endpoint, same method, same object family
+       - baseline actor accesses own object
+       - negative actor attempts access to another actor's object
+
+    G. For BFLA cases, prefer validation patterns such as:
+       - same privileged endpoint / function
+       - authorized role performs the action
+       - unauthorized role attempts the same action
+
+    H. For each executed case, capture:
+       - curl command summary
+       - actor used
+       - status code
+       - key response behavior
+       - authorization-relevant differences
+
+    I. If not executable, explain exactly what context is missing.
+
+
+    ==================================================
+    EXECUTION TARGET SELECTION
+    ==================================================
+
+    The Authentication Context and Object Discovery
+    Context may contain a target URL used by Python
+    tools running on the host machine.
+
+    Do not use the "target" value from
+    authentication_context.json or object_context.json
+    to construct KaliMCPTool curl requests.
+
+    For every request executed through KaliMCPTool,
+    use exclusively:
+
+    {execution_target_url}
+
+    Combine this execution target with the endpoint
+    path from object_context.json.
+
+    Example:
+
+    execution target:
+    {execution_target_url}
+
+    endpoint:
+    /identity/api/v2/user/dashboard
+
+    final execution URL:
+    {execution_target_url}/identity/api/v2/user/dashboard
+
+    Never replace the execution target with:
+
+    - http://127.0.0.1:8888
+    - CRAPI_BASE_URL
+    - the target field from authentication_context.json
+    - the target field from object_context.json
+
+
+
+    ==================================================
+    CURL EXECUTION TEMPLATES
+    ==================================================
+
+    Use curl-style request patterns such as the following when
+    appropriate for the test case.
+
+    GET with bearer token:
+    tool: curl
+    args: -i -s -X GET "{target_url}<endpoint>" -H "Authorization: Bearer <token>"
+
+    POST with bearer token and JSON body:
+    tool: curl
+    args: -i -s -X POST "{target_url}<endpoint>" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '<json body>'
+
+    PUT with bearer token and JSON body:
+    tool: curl
+    args: -i -s -X PUT "{target_url}<endpoint>" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '<json body>'
+
+    DELETE with bearer token:
+    tool: curl
+    args: -i -s -X DELETE "{target_url}<endpoint>" -H "Authorization: Bearer <token>"
+
+    Notes:
+    - Retrieve the endpoint and HTTP method from the
+        selected validation case and the available
+        execution contexts.
+    - Retrieve the appropriate JWT token from the
+        Authentication Context.
+    - If the case requires a path object such as order_id or vehicleId,
+      substitute it with a real known sample only if such a sample is
+      available from prior context or earlier validated responses.
+    - Retrieve object identifiers from the Object Discovery Context whenever available.
+        
+        Only classify a case as Inconclusive or
+        Not executed if the required object identifier
+        cannot be obtained from the available context.
+
+
+    
+    ==================================================
+    DECISION LOOP
+    ==================================================
+
+    Treat execution as an iterative decision process,
+    not as a single linear sequence.
+
+    The decision loop must operate in repeated
+    iterations.
+
+    For each selected validation case:
+
+    1. Evaluate the available authentication context.
+
+    2. Evaluate the available object discovery context.
+
+    3. Determine whether the authorization boundary
+    can actually be exercised.
+
+    4. If sufficient context exists, execute the
+    validation case through KaliMCPTool.
+
+    5. Evaluate the structured HTTP evidence returned
+    by KaliMCPTool.
+
+    6. Determine whether the collected evidence is
+    sufficient to classify the validation result.
+
+    7. If the evidence is insufficient, identify the
+    exact missing context and invoke the appropriate
+    available tool before deciding the final result.
+
+    Possible actions include:
+
+    - Invoke AuthenticationContextTool again when
+    additional identities, tokens or role contexts
+    may still be obtainable.
+
+    - Invoke ObjectDiscoveryTool again when additional
+    object identifiers, owned objects or accessible
+    resources may still be obtainable.
+
+    - Read the newly generated context artefacts again
+    after any discovery tool is invoked.
+
+    - Execute KaliMCPTool again when new authentication
+    or object context becomes available.
+
+    Do not merely recommend additional discovery when
+    the required discovery tool is available.
+
+    Invoke the appropriate tool and evaluate its
+    result during the current task.
+
+    After every additional discovery action, determine:
+
+    - what new context was obtained;
+    - whether the missing requirement was resolved;
+    - whether another execution attempt is justified;
+    - whether available discovery opportunities have
+    been exhausted.
+
+    Stop iterating for a validation case only when one
+    of the following conditions is true:
+
+    - sufficient evidence exists to classify the case;
+
+    - the relevant discovery tool was invoked again
+    and produced no useful new context;
+
+    - the required context cannot be obtained using
+    the available tools;
+
+    - the configured maximum number of iterations was
+    reached;
+
+    - further execution would be unsafe, unsupported
+    or speculative.
+
+    Never guess object identifiers, identities, roles,
+    endpoints or authorization relationships.
+
+    Never treat a missing object or identity as proof
+    that a vulnerability does not exist.
+
+
+    ==================================================
+    DECISION LOOP ITERATION LIMIT
+    ==================================================
+
+    Use a maximum of three decision-loop iterations
+    per validation case.
+
+    Iteration 1:
+    Use the initially generated Authentication Context
+    and Object Discovery Context.
+
+    Iteration 2:
+    Invoke the relevant discovery tool again when
+    specific missing context may still be obtainable.
+
+    Iteration 3:
+    Execute the validation again only when the second
+    iteration produced useful new context.
+
+    Do not repeatedly invoke the same tool when the
+    previous invocation produced no useful change.
+
+    When the iteration limit is reached, classify the
+    case conservatively and record the remaining
+    missing context.
+
+    
+
+    ==================================================
+    EXECUTION EVIDENCE RECORDING
+    ==================================================
+
+    After completing all executable validation cases,
+    create a structured execution log containing only
+    evidence from the current execution.
+
+    Invoke FileWriterTool after the KaliMCPTool
+    executions and before producing the final
+    execution report.
+
+    Use exactly:
+
+    filename:
+    execution_log.json
+
+    directory:
+    outputs/execution
+
+    overwrite:
+    true
+
+    The complete file path must be:
+
+    outputs/execution/execution_log.json
+
+
+    ==================================================
+    EXECUTION LOG STRUCTURE
+    ==================================================
+
+    The execution log must follow this structure:
+
+    {
+      "status": "completed",
+      "executed_tests": [
+        {
+          "test_id": "BOLA-01",
+          "test_type": "BOLA",
+          "priority": "High",
+          "endpoint": "/identity/api/v2/user/dashboard",
+          "http_method": "GET",
+
+          "execution_status": "Executed",
+          "validation_result": "Inconclusive",
+          "confidence": "Medium",
+
+          "iterations": [
+            {
+              "iteration": 1,
+              "action": "Initial context evaluation",
+              "decision": "Additional object identifiers required",
+              "tool_invoked": null,
+              "new_context_obtained": false
+            },
+            {
+              "iteration": 2,
+              "action": "Repeated object discovery",
+              "decision": "No additional vehicle identifiers discovered",
+              "tool_invoked": "ObjectDiscoveryTool",
+              "new_context_obtained": false
+            }
+          ],
+
+          "requests": [
+            {
+              "identity": "user_a",
+
+              "object_id": 123,
+
+              "http_status": 200,
+
+              "response_headers": {
+
+              },
+
+              "response_body": "...",
+
+              "response_body_json": {
+
+              },
+
+              "observed_http_status": 200,
+
+              "observed_response":
+                "Returned the authenticated user's own dashboard."
+            },
+
+            {
+              "identity": "user_b",
+
+              "observed_object_id": 456,
+
+              "http_status": 200,
+
+              "response_headers": {
+
+              },
+
+              "response_body": "...",
+
+              "response_body_json": {
+
+              },
+
+              "expected_security_behavior":
+                "Only resources owned by the authenticated
+                identity should be returned."
+
+              "observed_http_status": 200,
+
+              "observed_response":
+                "Returned the authenticated user's own dashboard."
+            }
+          ],
+
+          "comparison": {
+
+            "expected_behavior":
+              "Cross-user access should be denied.",
+
+            "observed_behavior":
+              "Each authenticated identity received only its own dashboard object.",
+
+            "conclusion":
+              "No evidence of cross-object access was observed
+               during the executed requests.",
+
+            "evidence_summary":
+              "Responses remained scoped to the authenticated identity."
+          },
+
+          "selection_reason": [
+            "Endpoint was accessible",
+            "Valid JWT tokens were available",
+            "Concrete object identifiers were available"
+          ],
+
+          "missing_context": [
+
+          ]
+        }
+      ],
+
+      "metadata": {
+
+        "generated_by": "ExecutionAgent",
+
+        "version": "1.2",
+
+        "authentication_context_file":
+          "outputs/execution/authentication_context.json",
+
+        "object_context_file":
+          "outputs/execution/object_context.json"
+
+      }
+    }
+
+
+    ==================================================
+    EXECUTED TEST STRUCTURE
+    ==================================================
+
+    Each entry inside "executed_tests" represents
+    one executed validation case.
+
+    Do not create multiple executed_tests entries
+    for the same test_id.
+
+    Instead, group every HTTP request belonging to
+    the same validation case inside a single
+    "requests" list.
+
+    Each executed test must contain:
+
+    - test_id
+    - test_type
+    - priority
+    - endpoint
+    - http_method
+    - execution_status
+    - validation_result
+    - confidence
+    - requests
+    - comparison
+    - selection_reason
+    - missing_context
+    - iterations
+
+    
+    ==================================================
+    REQUEST STRUCTURE
+    ==================================================
+
+    Each item inside "requests" represents one HTTP
+    request executed through KaliMCPTool.
+
+    Record:
+
+    - identity
+    - object_id
+    - http_status
+    - response_headers
+    - response_body
+    - response_body_json
+    - expected_security_behavior
+    - observed_http_status
+    - observed_response
+
+
+
+    ==================================================
+    COMPARISON STRUCTURE
+    ==================================================
+
+    After all requests belonging to the same test
+    have been executed, compare their results.
+
+    Record:
+
+    comparison:
+
+    - expected_behavior
+    - observed_behavior
+    - conclusion
+    - evidence_summary
+
+
+
+    ==================================================
+    ITERATION RECORDING
+    ==================================================
+
+    Record every decision-loop iteration inside the
+    corresponding test object's "iterations" array.
+
+    For each iteration record:
+
+    - iteration
+    - action
+    - decision
+    - tool_invoked
+    - new_context_obtained
+
+    Use null for tool_invoked when no tool was invoked.
+
+    Do not store tokens, credentials, passwords or
+    complete curl commands inside the iterations array.
+
+
+    ==================================================
+    MULTI-REQUEST EXECUTION RULE
+    ==================================================
+
+    Each object inside the "executed_tests" array
+    represents one logical validation case, not one
+    individual HTTP request.
+
+    Never create multiple executed_tests entries with
+    the same test_id.
+
+    If multiple authenticated identities are required
+    to validate the same authorization case, execute
+    one HTTP request for each identity and store them
+    inside the "requests" array.
+
+    Only after all requests have been executed,
+    produce the "comparison" section summarizing the
+    observed authorization behaviour.
+
+    The number of objects inside "executed_tests"
+    must always equal the number of unique executed
+    test_ids.
+
+
+    ==================================================
+    FIELD RULES
+    ==================================================
+
+    test_id:
+    Use the exact identifier from the Test Planning
+    Report.
+
+    test_type:
+    Use only:
+
+    - BOLA
+    - BFLA
+    - Shadow API
+
+    priority:
+    Preserve the priority stated in the Test Planning
+    Report.
+
+    endpoint:
+    Record only the endpoint path, without JWT tokens
+    or authorization headers.
+
+    http_method:
+    Record the HTTP method actually executed.
+
+    identity:
+    Record the logical identity name used for the
+    request, such as:
+
+    - user_a
+    - user_b
+    - admin
+    - mechanic
+    - management
+
+    comparison_identity:
+    Record the second identity used in a comparative
+    authorization test.
+
+    Use null when no second request was executed.
+
+    object_id:
+    Record the concrete identifier used during the
+    test.
+
+    Use null when the endpoint does not require an
+    object identifier.
+
+    execution_status:
+    Use only:
+
+    - Executed
+    - Failed
+    - Partially Executed
+
+    validation_result:
+
+    Determine the validation result based on the
+    authorization evidence collected during execution.
+
+    Use only:
+
+    - Confirmed
+
+    - Not Confirmed
+
+    - Inconclusive
+
+
+    Use "Confirmed" only when the executed evidence
+    clearly demonstrates unauthorized access,
+    privilege escalation, or another confirmed
+    authorization failure.
+
+
+    Use "Not Confirmed" only when the authorization
+    boundary itself was exercised and the application
+    correctly enforced the expected security controls.
+
+    Examples:
+
+    - A request using another user's object identifier
+      correctly returned HTTP 403 Forbidden.
+
+    - A cross-user request returned HTTP 404 because
+      the resource was intentionally hidden.
+
+    - Multiple cross-object requests consistently
+      demonstrated correct authorization behaviour.
+
+
+    Use "Inconclusive" when the authorization boundary
+    could not actually be exercised.
+
+    Examples:
+
+    - Every executed request returned only the
+      authenticated user's own object.
+
+    - No cross-object request was possible.
+
+    - No alternative object identifiers were available.
+
+    - Required objects or identities were unavailable.
+
+    Do not classify these situations as
+    "Not Confirmed", because the authorization
+    boundary itself was never tested.
+    
+    
+    confidence:
+
+    Determine confidence using the following decision
+    rules.
+
+    IF validation_result == "Confirmed"
+
+    THEN confidence = "High"
+
+    --------------------------------------------------
+
+    IF validation_result == "Not Confirmed"
+
+    AND
+
+    the executed requests did not exercise
+    cross-object authorization
+
+    THEN confidence = "Medium"
+
+    --------------------------------------------------
+
+    IF validation_result == "Not Confirmed"
+
+    AND
+
+    multiple independent object identifiers
+    were successfully exercised
+
+    AND
+
+    authorization behaviour remained correct
+
+    THEN confidence = "High"
+
+    --------------------------------------------------
+
+    IF validation_result == "Inconclusive"
+
+    THEN confidence = "Low"
+
+    unless substantial execution evidence
+    was collected, in which case use
+    "Medium".
+
+
+
+    selection_reason:
+    Record the evidence-based reasons why the case
+    was selected for execution.
+
+    missing_context:
+    Record any context that remained unavailable
+    during execution.
+
+    Use an empty list when no context was missing.
+
+
+    http_status:
+
+    Record the HTTP status code returned by the
+    executed request.
+
+    Example:
+
+    200
+    401
+    403
+    404
+    500
+
+
+    response_headers:
+
+    Record the parsed HTTP response headers
+    returned by KaliMCPTool.
+
+    Never modify or invent headers.
+
+
+    response_body:
+
+    Record the sanitized response body exactly as
+    returned by KaliMCPTool.
+
+    If the body is excessively large, include a
+    representative truncated version while preserving
+    the original execution evidence in raw_output.
+
+
+    response_body_json:
+
+    When KaliMCPTool successfully parses the
+    response body as JSON, record the resulting
+    JSON object.
+
+    Otherwise use null.
+
+
+    observed_http_status:
+
+    Repeat the actual HTTP status returned during
+    execution.
+
+    This field simplifies later comparison by the
+    AnalystAgent.
+
+
+    observed_response:
+
+    Provide a short evidence-oriented summary of
+    the observed server behaviour.
+
+    Examples:
+
+    "Returned HTTP 403 Forbidden."
+
+    "Returned HTTP 200 with another user's object."
+
+    "Returned HTTP 404 indicating object not found."
+
+    "Returned HTTP 401 due to missing authentication."
+
+
+    ==================================================
+    SECURITY AND EVIDENCE RULES
+    ==================================================
+
+    Never store in execution_log.json:
+
+    - JWT tokens
+    - passwords
+    - credentials
+    - Authorization headers
+    - complete curl commands containing tokens
+    - session secrets
+    - generated account passwords
+
+    Do not store a case inside "executed_tests" unless
+    KaliMCPTool was actually invoked for that case.
+
+    Cases that were not executed must remain in the
+    final Markdown report, but must not be added to
+    "executed_tests" in this version of the JSON log.
+
+    The FileWriterTool content must be valid JSON:
+
+    - use double quotation marks
+    - use null instead of None
+    - use true or false instead of True or False
+    - do not include Markdown code fences
+    - do not include comments
+    - do not include explanatory text before or after
+      the JSON
+
+    Do not finish the task before FileWriterTool
+    confirms that execution_log.json was written
+    successfully.
+
+    ==================================================
+    REQUIRED OUTPUT STRUCTURE
+    ==================================================
+
+    Produce a Markdown execution report with the following sections.
+
+    --------------------------------------------------
+    CONSISTENCY REQUIREMENTS
+    --------------------------------------------------
+
+    The Markdown Execution Report MUST be generated
+    from the final execution_log.json content.
+
+    The execution_log.json is the authoritative
+    execution evidence.
+
+    Never produce conclusions, execution status,
+    validation results, confidence levels, or
+    statistics that contradict the contents of
+    execution_log.json.
+
+    Generate execution_log.json first.
+
+    Only after FileWriterTool confirms that
+    execution_log.json was successfully written,
+    generate the Markdown Execution Report by
+    reading and summarizing the final JSON.
+
+    --------------------------------------------------
+
+
+    1. Execution scope
+       - Which planning artefacts were used
+       - Which Authentication Context was used
+       - Which Object Discovery Context was used
+       - How many cases were selected for attempted execution
+
+    2. Selected execution set
+       - List the chosen test cases from the planning report
+       - Explain why they were selected
+         (priority + available authentication and object discovery contexts)
+
+    3. Per-test execution results
+       For each executed or attempted test case include ALL of the
+       following:
+
+       - Test case ID
+       - Test type (BOLA/BFLA)
+       - Endpoint
+       - HTTP method
+       - Actor model used
+         (for example owner vs non-owner, admin vs standard user)
+       - Execution status
+         (Executed / Not executed)
+       - Validation result
+         (Confirmed / Not confirmed / Inconclusive / Not executed)
+       - Request summary
+         (high-level description of what was attempted; do not dump
+          raw exploit instructions)
+       - Observed response evidence
+         (status codes, key response differences, denial behavior,
+          data exposure indicators, state-change behavior if relevant)
+       - Interpretation
+         (what the evidence suggests)
+       - Confidence
+         (High / Medium / Low)
+       - Follow-up recommendation
+         (for example: needs second object sample, needs admin token,
+          needs safer replay, likely true positive, etc.)
+
+    4. Cases skipped due to missing context
+       - test case ID
+       - missing authentication context,
+         object discovery context, actor, role,
+         or required object identifier
+       - reason not executed
+
+    5. Execution summary
+       - Number of executed cases
+       - Number of confirmed findings
+       - Number of not confirmed cases
+       - Number of inconclusive cases
+       - Number of not executed cases
+       - Most important confirmed or suspected authorization issues
+
+    ==================================================
+    PRACTICAL EXECUTION PRIORITY
+    ==================================================
+
+    Prefer cases like:
+    - BOLA on /workshop/api/shop/orders/<order_id>
+    - BOLA on /workshop/api/shop/orders/return_order
+    - BOLA on /identity/api/v2/vehicle/<vehicleId>/location
+    - BFLA on /identity/api/v2/admin/videos/<video_id>
+    - BFLA on /workshop/api/management/users/all
+    - BFLA on /workshop/api/mechanic/service_requests
+
+    But only when the necessary auth context is available.
+
+    ==================================================
+    IMPORTANT SAFETY / QUALITY RULES
+    ==================================================
+
+    - Be conservative in conclusions.
+    - If the evidence is ambiguous, mark the result as Inconclusive.
+    - If a test requires two real objects and only one is known, say so.
+    - If the required authentication or object discovery context is unavailable, do not
+      execute the validation and clearly explain why the case is classified as Not executed
+      or Inconclusive.
+    - Keep the report useful for later compliance mapping, evidence review, and security assessment
+      reporting.
+
+   expected_output: >
+    Markdown execution report containing:
+    - Execution scope
+    - Selected execution set
+    - Per-test execution results
+    - Cases skipped due to missing context
+    - Execution summary
+
+   context:
+      - test_planning_task
+
+   output_file: reports/execution_report.md
+
+   agent: agent_execution
+
+validation_task:
+   description: >
+      Validate execution results, eliminate false positives and
+      confirm security findings.
+
+   expected_output: >
+      Markdown report containing:
+      - Confirmed findings
+      - False positives
+      - Severity ratings
+      - Technical evidence
+
+   context:
+      - execution_task
+
+   output_file: reports/validation_report.md
+
+   agent: agent_validation
+
+compliance_and_threat_mapping_task:
+   description: >
+      Map validated findings to OWASP API Security Top 10,
+      MITRE ATT&CK techniques and NIS2 Article 21 requirements.
+
+   expected_output: >
+      Final security assessment report containing:
+      - Executive summary
+      - OWASP mappings
+      - MITRE ATT&CK mappings
+      - NIS2 mappings
+      - Recommendations
+      - Final risk assessment
+
+   context:
+      - validation_task
+
+   output_file: reports/final_security_report.md
+
+   agent: agent_compliance_and_threat_mapping
