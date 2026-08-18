@@ -51,15 +51,30 @@ class AuthorizationBaselineComparator:
         "order_id",
         "carid",
         "car_id",
-        "coupon_code",
-        "couponcode",
-        "coupon_id",
-        "couponid",
         "vehicleid",
         "vehicle_id",
         "vin",
         "email",
         "transaction_id",
+
+        # # Coupon identifiers
+        "coupon_code",
+        "couponcode",
+        "coupon_id",
+        "couponid",
+
+        # Mechanic / service request identifiers
+        "service_request_id",
+        "servicerequestid",
+        "service_requestid",
+        "request_id",
+        "requestid",
+        "report_id",
+        "reportid",
+        "mechanic_id",
+        "mechanicid",
+        "mechanic_code",
+        "mechaniccode",
     }
 
     def compare(

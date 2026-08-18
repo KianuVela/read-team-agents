@@ -314,6 +314,16 @@ class ExecutionControllerTool(BaseTool):
                     "baseline_comparison_explanation": evidence.get(
                         "baseline_comparison_explanation"
                     ),
+
+                    # Temporary debug fields for baseline analysis
+                    "body_json_preview": str(
+                        evidence.get(
+                            "body_json"
+                        )
+                    )[:1000],
+                    "request_json_body": evidence.get(
+                        "request_json_body"
+                    ),
                     "authorization_evidence_summary": summary,
                 }
             )
