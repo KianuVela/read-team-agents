@@ -75,6 +75,12 @@ class AuthorizationBaselineComparator:
         "mechanicid",
         "mechanic_code",
         "mechaniccode",
+
+        # Received Report
+        "report_id",
+        "reportid",
+        "report_link",
+        "reportlink",
     }
 
     def compare(

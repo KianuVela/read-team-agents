@@ -126,16 +126,19 @@ class RedTeamAgents():
         )
 
     @agent
-    def agent_validation(self) -> Agent:
+    def agent_analyst(self) -> Agent:
         return Agent(
             config=self.agents_config[
-                "agent_validation"
+                "agent_analyst"
             ],
             llm=llm,
             verbose=True,
             memory=True,
             cache=True,
-            allow_delegation=False
+            allow_delegation=False,
+            tools=[
+                FileReadTool()
+            ]
         )
 
     @agent
@@ -148,7 +151,8 @@ class RedTeamAgents():
             verbose=True,
             memory=True,
             cache=True,
-            allow_delegation=False
+            allow_delegation=False,
+            tools=[FileReadTool()]
         )
 
 
@@ -201,10 +205,10 @@ class RedTeamAgents():
         )
 
     @task
-    def validation_task(self) -> Task:
+    def analyst_task(self) -> Task:
         return Task(
             config=self.tasks_config[
-                "validation_task"
+                "analyst_task"
             ]
         )
 
@@ -313,18 +317,39 @@ class RedTeamAgents():
     #)
 
     # Testando a o agente que fará a execução dos testes
+    #@crew
+   # def execution_test_crew(self) -> Crew:
+
+        #return Crew(
+         #   agents=[self.agent_execution()],
+          #  tasks=[self.execution_task()],
+          #  process=Process.sequential,
+          #  verbose=True, 
+           # memory=True
+    #)
+
+    # Testando apenas o Analyst Agent
+    #@crew
+    #def analyst_test_crew(self) -> Crew:
+
+        #return Crew(
+        #    agents=[self.agent_analyst()],
+         #   tasks=[self.analyst_task()],
+         #   process=Process.sequential,
+          #  verbose=True,
+          #  memory=True
+    #)
+
     @crew
-    def execution_test_crew(self) -> Crew:
-
+    def compliance_and_threat_mapping_crew(self) -> Crew:
         return Crew(
-            agents=[self.agent_execution()],
-
-            tasks=[self.execution_task()],
-
+            agents=[self.agent_compliance_and_threat_mapping()],
+            tasks=[self.compliance_and_threat_mapping_task()],
             process=Process.sequential,
-
             verbose=True,
-
             memory=True
-    )
+        )
+
+
+    
 

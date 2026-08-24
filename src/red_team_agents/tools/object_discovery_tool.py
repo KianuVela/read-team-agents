@@ -17,6 +17,10 @@ from red_team_agents.tools.collection_descriptor import (
     CollectionDescriptor,
 )
 
+from red_team_agents.core.execution.fixtures.deterministic_fixture_store import (
+    DeterministicFixtureStore,
+)
+
 
 class ObjectDiscoveryTool(BaseTool):
 
@@ -168,6 +172,10 @@ class ObjectDiscoveryTool(BaseTool):
                 "notes": []
             }
         }
+
+        object_context = self._persist_deterministic_fixtures(
+            object_context
+        )
 
         object_context = self.cleanup_object_context(
             object_context
@@ -1219,6 +1227,412 @@ class ObjectDiscoveryTool(BaseTool):
                 ids.append(value)
 
         return ids
+
+
+    def _persist_deterministic_fixtures(
+        self,
+        object_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Persist stable object identifiers discovered during Object Discovery.
+
+        The object_context structure used by this tool stores resources under:
+            object_context["resources"][resource_name]
+        """
+
+        fixture_store = DeterministicFixtureStore()
+
+        if not fixture_store.enabled:
+            return object_context
+
+        resources = object_context.get(
+            "resources",
+            {},
+        )
+
+        if not isinstance(
+            resources,
+            dict,
+        ):
+            return object_context
+
+        persisted: Dict[str, Any] = {}
+
+        # --------------------------------------------------
+        # VEHICLE FIXTURE
+        # --------------------------------------------------
+
+        vehicles = resources.get(
+            "vehicles",
+            {},
+        )
+
+        vehicle_id = self._first_discovered_id(
+            vehicles
+        )
+
+        if vehicle_id is not None:
+            fixture_store.set_fixture(
+                "user_a_vehicle_id",
+                vehicle_id,
+            )
+
+            persisted[
+                "user_a_vehicle_id"
+            ] = vehicle_id
+
+        vehicle_vin = self._find_first_scalar_value(
+            value=vehicles,
+            candidate_keys={
+                "vin",
+                "expected_vin",
+                "verified_vin",
+            },
+        )
+
+        if vehicle_vin is not None:
+            fixture_store.set_fixture(
+                "user_a_vin",
+                vehicle_vin,
+            )
+
+            persisted[
+                "user_a_vin"
+            ] = vehicle_vin
+
+        # --------------------------------------------------
+        # ORDER FIXTURE
+        # --------------------------------------------------
+
+        orders = resources.get(
+            "orders",
+            {},
+        )
+
+        order_id = self._first_discovered_id(
+            orders
+        )
+
+        if order_id is not None:
+            fixture_store.set_fixture(
+                "user_a_order_id",
+                order_id,
+            )
+
+            persisted[
+                "user_a_order_id"
+            ] = order_id
+
+        # --------------------------------------------------
+        # POST FIXTURE
+        # --------------------------------------------------
+
+        posts = resources.get(
+            "posts",
+            {},
+        )
+
+        post_id = self._first_discovered_id(
+            posts
+        )
+
+        if post_id is not None:
+            fixture_store.set_fixture(
+                "user_a_post_id",
+                post_id,
+            )
+
+            persisted[
+                "user_a_post_id"
+            ] = post_id
+
+        # --------------------------------------------------
+        # VIDEO FIXTURE
+        # --------------------------------------------------
+
+        videos = resources.get(
+            "videos",
+            {},
+        )
+
+        video_id = self._first_discovered_id(
+            videos
+        )
+
+        if video_id is not None:
+            fixture_store.set_fixture(
+                "user_a_video_id",
+                video_id,
+            )
+
+            persisted[
+                "user_a_video_id"
+            ] = video_id
+
+        # --------------------------------------------------
+        # REPORT FIXTURE
+        # --------------------------------------------------
+
+        reports = resources.get(
+            "reports",
+            {},
+        )
+
+        report_id = self._first_discovered_id(
+            reports
+        )
+
+        if report_id is not None:
+            fixture_store.set_fixture(
+                "user_a_report_id",
+                report_id,
+            )
+
+            persisted[
+                "user_a_report_id"
+            ] = report_id
+
+        report_vin = self._find_first_scalar_value(
+            value=reports,
+            candidate_keys={
+                "vin",
+                "expected_vin",
+                "verified_vin",
+            },
+        )
+
+        if report_vin is not None:
+            fixture_store.set_fixture(
+                "user_a_vin",
+                report_vin,
+            )
+
+            persisted[
+                "user_a_vin"
+            ] = report_vin
+
+        mechanic_code = self._find_first_scalar_value(
+            value=reports,
+            candidate_keys={
+                "mechanic_code",
+                "mechaniccode",
+            },
+        )
+
+        if mechanic_code is not None:
+            fixture_store.set_fixture(
+                "mechanic_code",
+                mechanic_code,
+            )
+
+            persisted[
+                "mechanic_code"
+            ] = mechanic_code
+
+        # --------------------------------------------------
+        # COUPON FIXTURE
+        # --------------------------------------------------
+
+        coupons = resources.get(
+            "coupons",
+            {},
+        )
+
+        coupon_code = self._first_discovered_id(
+            coupons
+        )
+
+        if coupon_code is not None:
+            fixture_store.set_fixture(
+                "coupon_code",
+                coupon_code,
+            )
+
+            persisted[
+                "coupon_code"
+            ] = coupon_code
+
+        object_context.setdefault(
+            "metadata",
+            {},
+        )
+
+        object_context[
+            "metadata"
+        ][
+            "deterministic_fixtures_persisted"
+        ] = persisted
+
+        return object_context
+
+    # VAMOS ADICIONAR AGORA ESTES 2 HELPERS ABAIXO
+
+    def _first_discovered_id(
+        self,
+        resource: Dict[str, Any],
+    ) -> Any | None:
+        """
+        Return the first stable object identifier discovered for a resource.
+        """
+
+        if not isinstance(
+            resource,
+            dict,
+        ):
+            return None
+
+        discovery = resource.get(
+            "object_discovery",
+            {},
+        )
+
+        ids = []
+
+        if isinstance(
+            discovery,
+            dict,
+        ):
+            ids = discovery.get(
+                "ids",
+                [],
+            )
+
+        if not isinstance(
+            ids,
+            list,
+        ):
+            ids = [
+                ids
+            ]
+
+        for object_id in ids:
+            if object_id not in (
+                None,
+                "",
+                0,
+            ):
+                return object_id
+
+        context_enrichment = resource.get(
+            "context_enrichment",
+            {},
+        )
+
+        if isinstance(
+            context_enrichment,
+            dict,
+        ):
+            for key in (
+                "verified_ids",
+                "created_ids",
+            ):
+                values = context_enrichment.get(
+                    key,
+                    [],
+                )
+
+                if not isinstance(
+                    values,
+                    list,
+                ):
+                    values = [
+                        values
+                    ]
+
+                for object_id in values:
+                    if object_id not in (
+                        None,
+                        "",
+                        0,
+                    ):
+                        return object_id
+
+        return None
+
+
+    def _find_first_scalar_value(
+        self,
+        value: Any,
+        candidate_keys: set[str],
+        depth: int = 0,
+    ) -> str | None:
+        """
+        Recursively find the first scalar value under one of the candidate keys.
+        """
+
+        if depth > 10:
+            return None
+
+        normalized_keys = {
+            self._normalize_fixture_key(
+                key
+            )
+            for key in candidate_keys
+        }
+
+        if isinstance(
+            value,
+            dict,
+        ):
+            for key, child in value.items():
+                normalized_key = self._normalize_fixture_key(
+                    key
+                )
+
+                if normalized_key in normalized_keys:
+                    if isinstance(
+                        child,
+                        (
+                            str,
+                            int,
+                            float,
+                        ),
+                    ):
+                        scalar = str(
+                            child
+                        ).strip()
+
+                        if scalar:
+                            return scalar
+
+                nested_value = self._find_first_scalar_value(
+                    value=child,
+                    candidate_keys=normalized_keys,
+                    depth=depth + 1,
+                )
+
+                if nested_value:
+                    return nested_value
+
+        if isinstance(
+            value,
+            list,
+        ):
+            for item in value:
+                nested_value = self._find_first_scalar_value(
+                    value=item,
+                    candidate_keys=normalized_keys,
+                    depth=depth + 1,
+                )
+
+                if nested_value:
+                    return nested_value
+
+        return None
+
+
+    def _normalize_fixture_key(
+        self,
+        key: Any,
+    ) -> str:
+        return str(
+            key
+        ).replace(
+            "-",
+            "_",
+        ).lower()
+
+    # *******************************#
 
 
     # --------------------------------------------------

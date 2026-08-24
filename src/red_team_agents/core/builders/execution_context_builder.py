@@ -23,6 +23,10 @@ from red_team_agents.core.matching.endpoint_matcher import (
     EndpointMatcher,
 )
 
+from red_team_agents.core.execution.fixtures.deterministic_fixture_store import (
+    DeterministicFixtureStore,
+)
+
 
 class ExecutionContextBuilder:
     """
@@ -420,21 +424,13 @@ class ExecutionContextBuilder:
         """
         Build a single ResourceModel for one TestCase.
 
-        The endpoint and HTTP method come from the TestCase,
-        while discovered object identifiers come from the
-        resolved resource-family context.
+        The endpoint and HTTP method come from the TestCase.
+        Object identifiers are resolved first from deterministic
+        fixtures, then from ObjectDiscoveryTool as fallback.
         """
 
         authentication = self._extract_authentication(
             authentication_context,
-        )
-
-        # --------------------------------------------------
-        # OBJECT CONTEXT COMES FROM RESOURCE FAMILY
-        # --------------------------------------------------
-
-        object_ids = self._extract_object_ids(
-            resource,
         )
 
         # --------------------------------------------------
@@ -445,6 +441,7 @@ class ExecutionContextBuilder:
             test_case.endpoint
             or ""
         ).strip()
+
         # Remove Markdown backticks surrounding endpoint paths.
         endpoint_path = endpoint_path.strip("`").strip()
 
@@ -453,8 +450,76 @@ class ExecutionContextBuilder:
             or "GET"
         ).strip().upper()
 
+        # --------------------------------------------------
+        # OBJECT IDS: FIXTURE FIRST, DISCOVERY FALLBACK
+        # --------------------------------------------------
+
+        fixture_store = DeterministicFixtureStore()
+
+        fixture_key = None
+        fixture_value = None
+
+        object_ids = self._extract_object_ids(
+            resource,
+        )
+
+        fixture_metadata = {
+            "deterministic_fixture_used": False,
+        }
+
+        if fixture_store.enabled:
+
+            fixture_key, fixture_value = (
+                fixture_store
+                .resolve_fixture_for_endpoint(
+                    endpoint=endpoint_path,
+                )
+            )
+
+            if fixture_value is not None:
+
+                if isinstance(
+                    fixture_value,
+                    dict,
+                ):
+                    object_ids = [
+                        str(
+                            value
+                        )
+                        for value in fixture_value.values()
+                        if value is not None
+                    ]
+
+                else:
+                    object_ids = [
+                        str(
+                            fixture_value
+                        )
+                    ]
+
+                fixture_metadata = {
+                    "deterministic_fixture_used": True,
+                    "deterministic_fixture_key": fixture_key,
+                    "deterministic_fixture_value": fixture_value,
+                }
+
+            elif fixture_key is not None:
+
+                fixture_metadata = {
+                    "deterministic_fixture_used": False,
+                    "missing_fixture_key": fixture_key,
+                }
+
+        # --------------------------------------------------
+        # EVIDENCE
+        # --------------------------------------------------
+
         evidence = self._extract_evidence(
             resource,
+        )
+
+        evidence.update(
+            fixture_metadata
         )
 
         print(
@@ -471,6 +536,8 @@ class ExecutionContextBuilder:
             http_method,
             "object_ids=",
             object_ids,
+            "fixture=",
+            fixture_metadata,
         )
 
         return ResourceModel(

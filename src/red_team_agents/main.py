@@ -3,6 +3,17 @@ import os
 
 from red_team_agents.crew import RedTeamAgents
 
+# Deterministic An alyst validation
+from red_team_agents.post_processing.analyst_findings_post_processor import (
+    AnalystFindingsPostProcessor,
+)
+
+# Deterministic Compliance validation
+from red_team_agents.post_processing.compliance_mapping_post_processor import (
+    ComplianceMappingPostProcessor,
+)
+
+
 load_dotenv()
 
 def run():
@@ -103,8 +114,40 @@ def run():
    # )
 
     # Teste para correr o agent execution
-    RedTeamAgents().execution_test_crew().kickoff(
+   # RedTeamAgents().execution_test_crew().kickoff(
+      #  inputs=inputs
+    #)
+
+    # Depois do Execution Agent terminar
+   # post_processing_result = AnalystFindingsPostProcessor().run()
+
+   # print("Deterministic findings validation completed.")
+   # print(
+    #    "Mapping-ready findings:",
+    #    post_processing_result["metadata"]["mapping_ready_count"]
+    #)
+
+    # Teste para correr apenas o Analyst Agent
+    #RedTeamAgents().analyst_test_crew().kickoff(
+     #   inputs=inputs
+    #)
+
+    # Test Compliance Agent
+    RedTeamAgents().compliance_and_threat_mapping_crew().kickoff(
         inputs=inputs
+    )
+
+    compliance_result = (ComplianceMappingPostProcessor().run())
+
+    print(
+        "Deterministic Compliance validation completed."
+    )
+
+    print(
+        "Validated compliance mappings:",
+        compliance_result[
+            "mapping_summary"
+        ]["mapping_ready_count"]
     )
 
 

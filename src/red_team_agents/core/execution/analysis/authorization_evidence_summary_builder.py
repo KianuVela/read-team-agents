@@ -61,6 +61,14 @@ class AuthorizationEvidenceSummaryBuilder:
             [],
         ) or []
 
+        state_changing_follow_up = evidence.get(
+            "state_changing_follow_up"
+        )
+
+        state_changing_follow_up_execution = evidence.get(
+            "state_changing_follow_up_execution"
+        )
+
         title = self._build_title(
             vulnerability_decision=vulnerability_decision,
             authorization_finding=authorization_finding,
@@ -80,7 +88,7 @@ class AuthorizationEvidenceSummaryBuilder:
             matched_identifiers=matched_identifiers,
         )
 
-        return {
+        result = {
             "title": title,
             "summary": summary,
             "http_status": http_status,
@@ -96,6 +104,16 @@ class AuthorizationEvidenceSummaryBuilder:
                 matched_identifiers
             ),
         }
+
+        if state_changing_follow_up is not None:
+            result["state_changing_follow_up"] = state_changing_follow_up
+
+        if state_changing_follow_up_execution is not None:
+            result[
+                "state_changing_follow_up_execution"
+            ] = state_changing_follow_up_execution
+
+        return result
 
     def _build_title(
         self,

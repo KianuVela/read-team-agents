@@ -22,6 +22,14 @@ from red_team_agents.core.planning.test_plan_parser import (
     TestPlanParser,
 )
 
+from red_team_agents.core.execution.analysis.authorization_evidence_category_builder import (
+    AuthorizationEvidenceCategoryBuilder,
+)
+
+from red_team_agents.core.execution.fixtures.deterministic_fixture_store import (
+    DeterministicFixtureStore,
+)
+
 
 class ExecutionControllerToolInput(BaseModel):
     """
@@ -186,6 +194,14 @@ class ExecutionControllerTool(BaseTool):
                 resource=resource,
             )
 
+            # estamos a garantir que, ao construir os itens estáticos e 
+            # dinâmicos, ele grava explicitamente "test_id": ... e 
+            # "finding_type": "BOLA" ou "BFLA" antes de gerar o authorization_evidence_summary.json.
+            self._attach_test_metadata_to_result(
+                result=result,
+                resource=resource,
+            )
+
             results.append(result)
 
         authorization_evidence_files = (
@@ -203,6 +219,91 @@ class ExecutionControllerTool(BaseTool):
         )
 
         return results
+
+    # Adicioanamos estes métodos para garantir que, ao construir os itens estáticos e 
+    # dinâmicos, ele grava explicitamente "test_id": ... e 
+    # "finding_type": "BOLA" ou "BFLA" antes de gerar o authorization_evidence_summary.json.
+    def _attach_test_metadata_to_result(
+        self,
+        result: Any,
+        resource: Any,
+    ) -> None:
+        """
+        Attach test_id and finding_type to result.evidence so they are preserved
+        in authorization_evidence_summary.json.
+        """
+
+        evidence = getattr(result, "evidence", None)
+
+        if not isinstance(evidence, dict):
+            return
+
+        test_id = (
+            evidence.get("test_id")
+            or evidence.get("test_case_id")
+            or self._get_resource_value(resource, "test_id")
+            or self._get_resource_value(resource, "test_case_id")
+            or self._get_resource_value(resource, "id")
+        )
+
+        finding_type = (
+            evidence.get("finding_type")
+            or self._infer_finding_type_from_test_id(test_id)
+        )
+
+        evidence["test_id"] = test_id
+        evidence["finding_type"] = finding_type
+
+
+    def _get_resource_value(
+        self,
+        resource: Any,
+        key: str,
+    ) -> Any:
+        """
+        Safely extract values from ResourceModel objects or dict-like resources.
+        """
+
+        if isinstance(resource, dict):
+            return resource.get(key)
+
+        value = getattr(resource, key, None)
+
+        if value is not None:
+            return value
+
+        data = getattr(resource, "data", None)
+
+        if isinstance(data, dict):
+            return data.get(key)
+
+        metadata = getattr(resource, "metadata", None)
+
+        if isinstance(metadata, dict):
+            return metadata.get(key)
+
+        return None
+
+
+    def _infer_finding_type_from_test_id(
+        self,
+        test_id: Any,
+    ) -> str | None:
+        """
+        Infer BOLA/BFLA from the test identifier.
+        """
+
+        test_id_text = str(test_id or "").upper()
+
+        if test_id_text.startswith("BOLA"):
+            return "BOLA"
+
+        if test_id_text.startswith("BFLA"):
+            return "BFLA"
+
+        return None
+
+
         
     def save_authorization_evidence(
         self,
@@ -260,6 +361,10 @@ class ExecutionControllerTool(BaseTool):
             authorization_summaries.append(
                 {
                     "index": index,
+
+                    "test_id": evidence.get("test_id"),
+                    "finding_type": evidence.get("finding_type"),
+                    
                     "success": getattr(
                         result,
                         "success",
@@ -324,6 +429,29 @@ class ExecutionControllerTool(BaseTool):
                     "request_json_body": evidence.get(
                         "request_json_body"
                     ),
+
+                    # Deterministic fixture evidence
+                    "deterministic_fixture_used": evidence.get(
+                        "deterministic_fixture_used"
+                    ),
+                    "deterministic_fixture_key": evidence.get(
+                        "deterministic_fixture_key"
+                    ),
+                    "deterministic_fixture_value": evidence.get(
+                        "deterministic_fixture_value"
+                    ),
+                    "missing_fixture_key": evidence.get(
+                        "missing_fixture_key"
+                    ),
+
+                    # State-changing follow-up evidence
+                    "state_changing_follow_up": evidence.get(
+                        "state_changing_follow_up"
+                    ),
+                    "state_changing_follow_up_execution": evidence.get(
+                        "state_changing_follow_up_execution"
+                    ),
+
                     "authorization_evidence_summary": summary,
                 }
             )
@@ -341,6 +469,53 @@ class ExecutionControllerTool(BaseTool):
             "authorization_evidence_summaries": authorization_summaries,
         }
 
+        fixture_store = DeterministicFixtureStore()
+        category_builder = AuthorizationEvidenceCategoryBuilder()
+
+        confirmed_static_findings = []
+        dynamic_follow_up_findings = []
+        inconclusive_due_to_missing_fixture = []
+
+        for summary in authorization_summaries:
+            category = category_builder.categorize(
+                summary
+            )
+
+            if category == "confirmed_static_findings":
+                confirmed_static_findings.append(
+                    summary
+                )
+
+            elif category == "dynamic_follow_up_findings":
+                dynamic_follow_up_findings.append(
+                    summary
+                )
+
+            elif category == "inconclusive_due_to_missing_fixture":
+                inconclusive_due_to_missing_fixture.append(
+                    summary
+                )
+
+        payload[
+            "metadata"
+        ].update(
+            fixture_store.metadata()
+        )
+
+        payload[
+            "confirmed_static_findings"
+        ] = confirmed_static_findings
+
+        payload[
+            "dynamic_follow_up_findings"
+        ] = dynamic_follow_up_findings
+
+        payload[
+            "inconclusive_due_to_missing_fixture"
+        ] = inconclusive_due_to_missing_fixture
+
+        
+        
         with json_file.open(
             "w",
             encoding="utf-8",
@@ -399,10 +574,29 @@ class ExecutionControllerTool(BaseTool):
             "",
             "## Overview",
             "",
-            f"- Total execution results: {metadata.get('total_execution_results')}",
-            f"- Total authorization summaries: {metadata.get('total_authorization_summaries')}",
-            "",
         ]
+
+        deterministic_note = metadata.get(
+            "deterministic_fixture_note"
+        )
+
+        if deterministic_note:
+            lines.extend(
+                [
+                    f"> {deterministic_note}",
+                    "",
+                ]
+            )
+
+        lines.extend(
+            [
+                f"- Total execution results: {metadata.get('total_execution_results')}",
+                f"- Total authorization summaries: {metadata.get('total_authorization_summaries')}",
+                f"- Deterministic fixtures used: {metadata.get('deterministic_fixtures_used')}",
+                f"- Deterministic fixture profile: {metadata.get('deterministic_fixture_profile')}",
+                "",
+            ]
+        )
 
         if not summaries:
             lines.append(

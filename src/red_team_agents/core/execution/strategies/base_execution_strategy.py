@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
 import json
 import re
 
@@ -27,6 +28,10 @@ from red_team_agents.core.execution.analysis.authorization_evidence_enricher imp
 
 from red_team_agents.core.execution.analysis.vulnerability_promotion_update_builder import (
     VulnerabilityPromotionUpdateBuilder,
+)
+
+from red_team_agents.core.execution.analysis.state_changing_follow_up_builder import (
+    StateChangingFollowUpBuilder,
 )
 
 
@@ -292,12 +297,14 @@ class BaseExecutionStrategy(
         )
 
         builder.with_method(
-            resource.method
+            self._resolve_effective_http_method(
+                resource=resource
+            )
         )
 
-        builder.with_url(
-            absolute_url
-        )
+        #builder.with_url(
+            #absolute_url
+        #)
 
         builder.bearer(
             resource.jwt_token
@@ -316,8 +323,40 @@ class BaseExecutionStrategy(
 
         request_input = (
             RequestInputResolver().resolve(
-                resource
+                resource=resource,
+                context=context,
             )
+        )
+
+        query_params = (
+            getattr(
+                request_input,
+                "query_params",
+                None,
+            )
+            or {}
+        )
+
+        if query_params:
+
+            query_string = urlencode(
+                query_params
+            )
+
+            separator = (
+                "&"
+                if "?" in absolute_url
+                else "?"
+            )
+
+            absolute_url = (
+                f"{absolute_url}"
+                f"{separator}"
+                f"{query_string}"
+            )
+
+        builder.with_url(
+            absolute_url
         )
 
         json_body = (
@@ -376,6 +415,40 @@ class BaseExecutionStrategy(
         self._last_request_json_body = json_body
 
         return normalized_args
+
+    def _resolve_effective_http_method(
+        self,
+        resource,
+    ) -> str:
+        """
+        Resolve the HTTP method to be used during execution.
+
+        Some crAPI endpoints require a request body even when the
+        discovered or planned resource method is incomplete.
+        """
+
+        endpoint = str(
+            getattr(
+                resource,
+                "endpoint",
+                "",
+            )
+            or ""
+        ).strip()
+
+        method = str(
+            getattr(
+                resource,
+                "method",
+                "",
+            )
+            or ""
+        ).strip().upper()
+
+        #if endpoint == "/workshop/api/mechanic/receive_report":
+            #return "POST"
+
+        return method
 
     # --------------------------------------------------
     # RESOLVE ENDPOINT TEMPLATE
@@ -928,11 +1001,45 @@ class BaseExecutionStrategy(
                 "a valid parseable HTTP response."
             )
 
+        follow_up = None
+        
         if isinstance(response, dict):
             response = dict(response)
 
             if request_json_body is not None:
-                response["request_json_body"] = request_json_body
+                response[
+                    "request_json_body"
+                ] = request_json_body
+
+            resource_evidence = getattr(
+                resource,
+                "evidence",
+                {},
+            ) or {}
+
+            if isinstance(
+                resource_evidence,
+                dict,
+            ):
+                for key in (
+                    "deterministic_fixture_used",
+                    "deterministic_fixture_key",
+                    "deterministic_fixture_value",
+                    "missing_fixture_key",
+                ):
+                    if key in resource_evidence:
+                        response[
+                            key
+                        ] = resource_evidence[
+                            key
+                        ]
+
+            follow_up = (
+                StateChangingFollowUpBuilder()
+                .build_from_evidence(
+                    response
+                )
+            )
 
         enriched_evidence = AuthorizationEvidenceEnricher().enrich(
             evidence=response,
@@ -940,6 +1047,45 @@ class BaseExecutionStrategy(
                 resource.expected_secure_behavior
             ),
         )
+
+        baseline_manager = getattr(
+            self,
+            "_baseline_manager",
+            None,
+        )
+
+        baseline_mode = self._resolve_baseline_mode(
+            context=context,
+        )
+
+        if follow_up is not None:
+            enriched_evidence = dict(
+                enriched_evidence
+            )
+
+            enriched_evidence[
+                "state_changing_follow_up"
+            ] = follow_up
+
+        if (
+            follow_up is not None
+            and baseline_mode == "compare"
+        ):
+            follow_up_execution = (
+                self._execute_state_changing_follow_up(
+                    context=context,
+                    resource=resource,
+                    follow_up=follow_up,
+                )
+            )
+
+            enriched_evidence = dict(
+                enriched_evidence
+            )
+
+            enriched_evidence[
+                "state_changing_follow_up_execution"
+            ] = follow_up_execution
 
         baseline_manager = getattr(
             self,
@@ -1052,3 +1198,180 @@ class BaseExecutionStrategy(
                 "HTTP response was obtained."
             ),
         )
+
+    # quando existir state_changing_follow_up, o BaseExecutionStrategy executa automaticamente esse endpoint 
+    # com o mesmo actor do teste não autorizado e anexa a evidência em state_changing_follow_up_execution.
+    def _execute_state_changing_follow_up(
+        self,
+        context,
+        resource,
+        follow_up: dict,
+    ) -> dict:
+        """
+        Execute a derived follow-up request created from a
+        state-changing flow.
+
+        This is used for flows such as receive_report, where the
+        first request creates a report_id and the second request
+        validates whether that generated report can be accessed by
+        a non-authorized actor.
+        """
+
+        endpoint = str(
+            follow_up.get(
+                "follow_up_endpoint",
+                "",
+            )
+            or ""
+        ).strip()
+
+        method = str(
+            follow_up.get(
+                "follow_up_method",
+                "GET",
+            )
+            or "GET"
+        ).strip().upper()
+
+        expected_secure_behavior = follow_up.get(
+            "expected_secure_behavior"
+        )
+
+        if not endpoint:
+            return {
+                "success": False,
+                "stage": "state_changing_follow_up",
+                "error": "Follow-up endpoint is unavailable.",
+                "authorization_outcome": "unknown",
+                "authorization_finding": "inconclusive",
+                "vulnerability_decision": "inconclusive",
+                "vulnerability_decision_vulnerable": None,
+                "vulnerability_decision_confidence": "low",
+            }
+
+        try:
+            execution_target = self._resolve_execution_target(
+                context=context,
+                resource=resource,
+            )
+
+            absolute_url = self._construct_absolute_url(
+                execution_target=execution_target,
+                endpoint=endpoint,
+            )
+
+            builder = self._new_curl_builder()
+
+            builder.with_method(
+                method
+            )
+
+            builder.with_url(
+                absolute_url
+            )
+
+            builder.bearer(
+                resource.jwt_token
+            )
+
+            if hasattr(
+                builder,
+                "accept_json",
+            ):
+                builder.accept_json()
+
+            curl_args = builder.build()
+
+            normalized_args = str(
+                curl_args or ""
+            ).strip()
+
+            if not normalized_args:
+                raise RuntimeError(
+                    "CurlBuilder returned empty arguments "
+                    "for state-changing follow-up."
+                )
+
+            if normalized_args.lower().startswith(
+                "curl "
+            ):
+                raise RuntimeError(
+                    "CurlBuilder returned an invalid follow-up "
+                    "command with leading curl executable."
+                )
+
+            response = self._execute(
+                normalized_args
+            )
+
+            if isinstance(
+                response,
+                dict,
+            ):
+                follow_up_evidence = dict(
+                    response
+                )
+            else:
+                follow_up_evidence = {
+                    "raw_response": response
+                }
+
+            follow_up_evidence[
+                "follow_up_flow_type"
+            ] = follow_up.get(
+                "flow_type"
+            )
+
+            follow_up_evidence[
+                "follow_up_source_endpoint"
+            ] = follow_up.get(
+                "source_endpoint"
+            )
+
+            follow_up_evidence[
+                "follow_up_endpoint"
+            ] = endpoint
+
+            follow_up_evidence[
+                "follow_up_method"
+            ] = method
+
+            follow_up_evidence[
+                "expected_secure_behavior"
+            ] = expected_secure_behavior
+
+            follow_up_evidence[
+                "success"
+            ] = self._is_valid_http_response(
+                follow_up_evidence
+            )
+
+            enriched_follow_up_evidence = (
+                AuthorizationEvidenceEnricher()
+                .enrich(
+                    evidence=follow_up_evidence,
+                    expected_secure_behavior=(
+                        expected_secure_behavior
+                    ),
+                )
+            )
+
+            return enriched_follow_up_evidence
+
+        except Exception as exc:
+            return {
+                "success": False,
+                "stage": "state_changing_follow_up",
+                "follow_up_endpoint": endpoint,
+                "follow_up_method": method,
+                "expected_secure_behavior": expected_secure_behavior,
+                "error": (
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                ),
+                "authorization_outcome": "unknown",
+                "authorization_finding": "inconclusive",
+                "vulnerability_decision": "inconclusive",
+                "vulnerability_decision_vulnerable": None,
+                "vulnerability_decision_confidence": "low",
+            }
