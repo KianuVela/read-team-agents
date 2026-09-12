@@ -937,43 +937,6 @@ execution_task:
 
 
     ==================================================
-    AUTHORIZATION ATTACK DEFINITIONS (CRITICAL)
-    ==================================================
-
-    BOLA (Broken Object Level Authorization) = Horizontal Privilege Escalation
-    - The attacker remains with the same role/privilege level.
-    - The attack consists of changing the object identifier while keeping
-      the same authenticated identity and token.
-    - Goal: Access or manipulate another user's object
-      (vehicle, order, report, video, etc.).
-
-    Typical BOLA mutation pattern:
-    - Same endpoint
-    - Same HTTP method
-    - Same JWT token
-    - Different object_id (another user's resource)
-
-    BFLA (Broken Function Level Authorization) = Vertical Privilege Escalation
-    - The attacker tries to reach a higher-privileged function/endpoint.
-    - The attack consists of changing the path, role indicator, or function
-      while keeping a lower-privileged token.
-    - Goal: Execute administrative or privileged actions with a
-      standard user token.
-
-    Typical BFLA mutation pattern:
-    - Change path segment (e.g. /user/ → /admin/, /mechanic/, /management/)
-    - Or change HTTP method on a privileged function
-    - Keep the same low-privilege JWT token
-
-    Privilege Escalation in this context means:
-    - Horizontal → BOLA (same role, different object)
-    - Vertical   → BFLA (lower role accessing higher function)
-
-    These definitions must guide how execution evidence is interpreted
-    and described in the Execution Report.
-
-
-    ==================================================
     INPUT ARTEFACTS
     ==================================================
 
@@ -1136,14 +1099,6 @@ execution_task:
     describe them as execution-level or controller-level evidence
     outcomes rather than as final mapping-ready findings.
 
-    When describing authorization issues, clearly distinguish:
-
-    - BOLA / Horizontal Privilege Escalation
-      (same role, different object identifier)
-
-    - BFLA / Vertical Privilege Escalation
-      (lower privilege role accessing higher privilege function)
-
     Required sections:
 
     1. Execution scope
@@ -1164,9 +1119,7 @@ execution_task:
        - actor/context used;
        - observed HTTP behaviour;
        - controller-level authorization evidence;
-       - baseline comparison where available;
-       - classification of the issue as BOLA (Horizontal)
-         or BFLA (Vertical) Privilege Escalation when applicable.
+       - baseline comparison where available.
 
     4. Inconclusive or unavailable evidence
        - cases lacking sufficient execution context;
@@ -1356,225 +1309,205 @@ analyst_task:
 
 compliance_and_threat_mapping_task:
    description: >
-      Produce a structured Compliance and Threat Mapping Draft as valid JSON
-      only, based exclusively on:
+    Produce a structured Compliance and Threat Mapping Draft as valid JSON only,
+    based exclusively on:
 
-      outputs/analysis/validated_analyst_findings.json
+    outputs/analysis/validated_analyst_findings.json
 
-      ==================================================
+    ==================================================
+    AUTHORITATIVE INPUT
+    ==================================================
 
-      AUTHORITATIVE INPUT
+    Process only:
 
-      ==================================================
+    mapping_ready_findings
 
-      Process only:
+    These findings are already validated, normalized, deduplicated,
+    assigned canonical IDs, and marked mapping-ready.
 
-      threat_compliance_context_findings
+    Preserve exactly:
 
-      This collection is the consolidated set of validated findings prepared
-      by the Analyst post-processor for threat and compliance contextualization.
+    - canonical_id;
+    - final_status;
+    - finding_type;
+    - test_id;
+    - endpoint;
+    - HTTP method;
+    - vulnerability_decision;
+    - baseline_comparison;
+    - reason.
 
-      It may include:
+    Do not execute HTTP requests, revalidate vulnerabilities, recalculate
+    baseline comparisons, deduplicate findings, create findings, remove
+    findings, merge findings, split findings, change canonical IDs, change
+    final_status, change mapping_ready, alter confirmed totals, promote
+    review findings, or treat expected_denials as vulnerabilities.
 
-      - BOLA findings confirmed by authorization testing;
-      - BFLA findings confirmed by authorization testing;
-      - SHADOW_API findings confirmed by deterministic runtime/OpenAPI
-        reconciliation.
+    validated_analyst_findings.json remains authoritative for the existence,
+    identity, status, and number of findings.
 
-      Preserve exactly:
+    ==================================================
+    OUTPUT REQUIREMENT
+    ==================================================
 
-      - canonical_id;
-      - final_status;
-      - finding_type;
-      - test_id;
-      - endpoint;
-      - HTTP method;
-      - vulnerability_decision;
-      - baseline_comparison;
-      - reason.
+    Output valid pretty-printed JSON only, using indentation.
 
-      Do not execute HTTP requests, revalidate vulnerabilities, recalculate
-      baseline comparisons, deduplicate findings, create findings, remove
-      findings, merge findings, split findings, change canonical IDs, change
-      final_status, alter confirmed totals, promote review findings, or treat
-      expected_denials as vulnerabilities.
+    Do not output Markdown.
 
-      validated_analyst_findings.json remains authoritative for the existence,
-      identity, status, and number of findings.
+    Do not include explanatory prose outside the JSON object.
 
-      ==================================================
+    The JSON object must contain exactly:
 
-      OUTPUT REQUIREMENT
+    - source_file
+    - mappings
 
-      ==================================================
+    The mappings array must contain one object for each item in
+    mapping_ready_findings.
 
-      Output valid pretty-printed JSON only, using indentation of 2 spaces.
+    The number of mappings must equal metadata.mapping_ready_count.
 
-      Do not output Markdown.
+    ==================================================
+    REQUIRED JSON STRUCTURE
+    ==================================================
 
-      Do not include explanatory prose outside the JSON object.
+    Each mapping object must contain:
 
-      The JSON object must contain exactly:
+    - canonical_id
+    - owasp
+    - mitre_attack
+    - nis2
 
-      - source_file
-      - mappings
+    OWASP object:
 
-      The mappings array must contain one object for each item in
-      threat_compliance_context_findings.
+    - category_id
+    - category_name
+    - rationale
 
-      The number of mappings must equal
-      metadata.threat_compliance_context_count.
+    MITRE ATT&CK object:
 
-      ==================================================
+    - direct_mapping
+    - techniques
+    - rationale
 
-      REQUIRED JSON STRUCTURE
+    NIS2 object:
 
-      ==================================================
+    - primary
+    - secondary
 
-      Each mapping object must contain:
+    NIS2 primary object:
 
-      - canonical_id
-      - owasp
-      - mitre_attack
-      - nis2
+    - article
+    - security_measure
+    - relevance
+    - rationale
 
-      OWASP object:
+    NIS2 secondary must be an array of objects containing:
 
-      - category_id
-      - category_name
-      - rationale
+    - article
+    - security_measure
+    - relevance
+    - rationale
 
-      MITRE ATT&CK object:
+    ==================================================
+    OWASP API SECURITY TOP 10 2023
+    ==================================================
 
-      - direct_mapping
-      - techniques
-      - rationale
+    Map authorization findings primarily to:
 
-      NIS2 object:
+    API1:2023 - Broken Object Level Authorization
 
-      - primary
-      - secondary
+    when the evidence demonstrates unauthorized access to or interaction
+    with a specific protected object or resource through an object identifier.
 
-      NIS2 primary object:
+    OR:
 
-      - article
-      - security_measure
-      - relevance
-      - rationale
+    API5:2023 - Broken Function Level Authorization
 
-      NIS2 secondary must be an array of objects containing:
+    when the evidence demonstrates unauthorized access to a privileged,
+    role-restricted, administrative, management, or protected function.
 
-      - article
-      - security_measure
-      - relevance
-      - rationale
+    Use finding_type and test_id as the primary guide.
 
-      ==================================================
+    Do not invent additional OWASP categories.
 
-      OWASP API SECURITY TOP 10 2023
+    Normally assign one primary OWASP category.
 
-      ==================================================
+    ==================================================
+    MITRE ATT&CK
+    ==================================================
 
-      Use finding_type as the primary guide.
+    Map a MITRE ATT&CK technique only when the validated evidence directly
+    demonstrates behaviour described by that technique.
 
-      Map:
+    Do not map an authorization vulnerability to ATT&CK merely because an
+    attacker could theoretically exploit it.
 
-      - BOLA to API1:2023 - Broken Object Level Authorization;
-      - BFLA to API5:2023 - Broken Function Level Authorization;
-      - SHADOW_API to API9:2023 - Improper Inventory Management.
+    Do not infer credential theft, token theft, privilege escalation, lateral
+    movement, persistence, or account compromise unless explicitly supported
+    by the validated evidence.
 
-      Do not invent additional OWASP categories.
+    If no defensible mapping exists, use:
 
-      Normally assign one primary OWASP category.
+    {
+      "direct_mapping": false,
+      "techniques": [],
+      "rationale": "No direct defensible MITRE ATT&CK mapping identified from the validated evidence."
+    }
 
-      ==================================================
+    ==================================================
+    NIS2 - DIRECTIVE (EU) 2022/2555
+    ==================================================
 
-      MITRE ATT&CK
+    Map each validated finding to the most directly relevant cybersecurity
+    risk-management measure in Article 21(2) of Directive (EU) 2022/2555.
 
-      ==================================================
+    For BOLA and BFLA authorization weaknesses, normally use as primary:
 
-      Map a MITRE ATT&CK technique only when the validated evidence directly
-      demonstrates behaviour described by that technique.
+    Article 21(2)(i)
+    - human resources security;
+    - access control policies;
+    - asset management.
 
-      Do not map a finding to ATT&CK merely because an attacker could
-      theoretically exploit it.
+    Where technically justified, use as secondary:
 
-      Do not infer credential theft, token theft, privilege escalation, lateral
-      movement, persistence, or account compromise unless explicitly supported
-      by the validated evidence.
+    Article 21(2)(e)
+    - security in network and information systems acquisition,
+      development and maintenance, including vulnerability handling
+      and disclosure;
 
-      If no defensible mapping exists, use:
+    Article 21(2)(a)
+    - policies on risk analysis and information system security;
 
-      {
-        "direct_mapping": false,
-        "techniques": [],
-        "rationale": "No direct defensible MITRE ATT&CK mapping identified from the validated evidence."
-      }
+    Article 21(2)(f)
+    - policies and procedures to assess the effectiveness of cybersecurity
+      risk-management measures.
 
-      ==================================================
+    Do not map to Article 21(2)(j) unless the evidence specifically concerns
+    MFA, continuous authentication, or secure communications.
 
-      NIS2 - DIRECTIVE (EU) 2022/2555
+    Do not state that a finding constitutes a NIS2 violation, infringement,
+    or legal non-compliance.
 
-      ==================================================
+    The mapping expresses cybersecurity risk-management relevance, not a
+    legal determination.
 
-      Map each validated finding to the most directly relevant cybersecurity
-      risk-management measure in Article 21(2) of Directive (EU) 2022/2555.
+    ==================================================
+    FINAL RULE
+    ==================================================
 
-      For BOLA and BFLA authorization weaknesses, normally use as primary:
+    This phase proposes framework mappings only.
 
-      Article 21(2)(i)
-      - human resources security;
-      - access control policies;
-      - asset management.
-
-      For SHADOW_API findings, normally use as primary:
-
-      Article 21(2)(e)
-      - security in network and information systems acquisition,
-        development and maintenance, including vulnerability handling
-        and disclosure.
-
-      Where technically justified, use as secondary:
-
-      Article 21(2)(a)
-      - policies on risk analysis and information system security;
-
-      Article 21(2)(f)
-      - policies and procedures to assess the effectiveness of cybersecurity
-        risk-management measures;
-
-      Article 21(2)(i)
-      - access control policies and asset management.
-
-      Do not map to Article 21(2)(j) unless the evidence specifically concerns
-      MFA, continuous authentication, or secure communications.
-
-      Do not state that a finding constitutes a NIS2 violation, infringement,
-      or legal non-compliance.
-
-      The mapping expresses cybersecurity risk-management relevance, not a
-      legal determination.
-
-      ==================================================
-
-      FINAL RULE
-
-      ==================================================
-
-      This phase proposes framework mappings only.
-
-      The ComplianceMappingPostProcessor will deterministically validate,
-      correct, reconcile, and generate the final compliance report.
+    The ComplianceMappingPostProcessor will deterministically validate,
+    correct, reconcile, and generate the final compliance report.
 
    expected_output: >
       Valid JSON object only, containing source_file and mappings.
       Each mapping must contain canonical_id, owasp, mitre_attack, and nis2.
-      The mappings array must contain one mapping for each item in
-      threat_compliance_context_findings.
       No Markdown and no explanatory prose outside the JSON object.
-      Pretty-print the JSON using an indentation of 2 spaces.
 
    output_file: outputs/compliance/compliance_mapping_draft.json
 
    agent: agent_compliance_and_threat_mapping
 
+
+   

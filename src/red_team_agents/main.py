@@ -89,66 +89,84 @@ def run():
         #inputs=inputs
     #)
 
+    # ============================================================
+
     # teste para correr apenas o agente openapi
     #RedTeamAgents().openapi_test_crew().kickoff(
-    #inputs=inputs
-#)
-    #teste para correr o agente de attcak surface apenas com as 4 tools
+        #inputs=inputs
+    #)
+
+    # ============================================================
+
+    # Teste para correr o agente de attcak surface apenas com as 4 tools + 2 Deterministicas no shadow_api_detetction e api_operation
     #RedTeamAgents().attack_surface_test_crew().kickoff(
-    #inputs=inputs
-#)
+       # inputs=inputs
+    #)
+
+    # ============================================================
 
     # Teste para correr o agent shadow api
     #RedTeamAgents().shadow_api_test_crew().kickoff(
         #inputs=inputs
     #)
 
+    # ============================================================
+
     # Teste para correr o agent de threat modeling
     #RedTeamAgents().threat_modeling_test_crew().kickoff(
         #inputs=inputs
     #)
+
+    # ============================================================
 
     # Teste para correr o agent planeador
     #RedTeamAgents().test_planning_test_crew().kickoff(
         #inputs=inputs
    # )
 
+   # ============================================================
+
     # Teste para correr o agent execution
-   # RedTeamAgents().execution_test_crew().kickoff(
-      #  inputs=inputs
-    #)
+    RedTeamAgents().execution_test_crew().kickoff(
+        inputs=inputs
+    )
+
+    # ============================================================
 
     # Depois do Execution Agent terminar
-   # post_processing_result = AnalystFindingsPostProcessor().run()
+    #post_processing_result = AnalystFindingsPostProcessor().run()
 
-   # print("Deterministic findings validation completed.")
-   # print(
-    #    "Mapping-ready findings:",
-    #    post_processing_result["metadata"]["mapping_ready_count"]
+    #print("Deterministic findings validation completed.")
+    #print(
+        #"Mapping-ready findings:",
+       # post_processing_result["metadata"]["mapping_ready_count"]
     #)
+
+    # ============================================================
 
     # Teste para correr apenas o Analyst Agent
     #RedTeamAgents().analyst_test_crew().kickoff(
      #   inputs=inputs
     #)
 
+    # ============================================================
     # Test Compliance Agent
-    RedTeamAgents().compliance_and_threat_mapping_crew().kickoff(
-        inputs=inputs
-    )
+    #RedTeamAgents().compliance_and_threat_mapping_crew().kickoff(
+        #inputs=inputs
+    #)
 
-    compliance_result = (ComplianceMappingPostProcessor().run())
+    #compliance_result = (ComplianceMappingPostProcessor().run())
 
-    print(
-        "Deterministic Compliance validation completed."
-    )
+    #print(
+        #"Deterministic Compliance validation completed."
+    #)
 
-    print(
-        "Validated compliance mappings:",
-        compliance_result[
-            "mapping_summary"
-        ]["mapping_ready_count"]
-    )
+    #print(
+        #"Validated compliance mappings:",
+        #compliance_result[
+            #"mapping_summary"
+        #]["mapping_ready_count"]
+    #)
 
 
 if __name__ == "__main__":

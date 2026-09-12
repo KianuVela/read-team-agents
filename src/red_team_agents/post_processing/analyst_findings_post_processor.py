@@ -25,10 +25,12 @@ class AnalystFindingsPostProcessor:
         evidence_summary_path: str | Path = "outputs/execution/authorization_evidence_summary.json",
         output_json_path: str | Path = "outputs/analysis/validated_analyst_findings.json",
         output_markdown_path: str | Path = "reports/validated_analyst_findings.md",
+        shadow_candidate_validation_path: str | Path = "reports/shadow_api/shadow_candidate_validation.json",
     ) -> None:
         self.evidence_summary_path = Path(evidence_summary_path)
         self.output_json_path = Path(output_json_path)
         self.output_markdown_path = Path(output_markdown_path)
+        self.shadow_candidate_validation_path = Path(shadow_candidate_validation_path)
 
     def run(self) -> Dict[str, Any]:
         evidence = self._load_json(self.evidence_summary_path)
@@ -53,7 +55,16 @@ class AnalystFindingsPostProcessor:
 
         expected_denials = self._build_expected_denials(evidence)
 
+        confirmed_shadow = self._build_confirmed_shadow_findings(
+            self._load_shadow_candidate_validation()
+        )
+
         mapping_ready = confirmed_static + confirmed_dynamic
+
+        threat_compliance_context = (
+            mapping_ready
+            + confirmed_shadow
+        )
 
         result = {
             "status": "completed",
@@ -65,27 +76,48 @@ class AnalystFindingsPostProcessor:
                 "source_file": str(self.evidence_summary_path),
                 "source_file_mtime_utc": self._file_mtime_iso(self.evidence_summary_path),
                 "source_file_sha256": self._file_sha256(self.evidence_summary_path),
+                "shadow_candidate_validation_file": str(
+                    self.shadow_candidate_validation_path
+                ),
+                "shadow_candidate_validation_file_mtime_utc": (
+                    self._file_mtime_iso(self.shadow_candidate_validation_path)
+                    if self.shadow_candidate_validation_path.exists()
+                    else None
+                ),
+                "shadow_candidate_validation_file_sha256": (
+                    self._file_sha256(self.shadow_candidate_validation_path)
+                    if self.shadow_candidate_validation_path.exists()
+                    else None
+                ),
             },
 
 
             "confirmed_static_findings": confirmed_static,
             "confirmed_dynamic_findings": confirmed_dynamic,
+            "confirmed_shadow_findings": confirmed_shadow,
             "review_findings": review_findings,
             "expected_denials": expected_denials,
             "mapping_ready_findings": mapping_ready,
+            "threat_compliance_context_findings": threat_compliance_context,
             "metadata": {
                 "confirmed_static_count": len(confirmed_static),
                 "confirmed_dynamic_count": len(confirmed_dynamic),
+                "confirmed_shadow_count": len(confirmed_shadow),
                 "review_count": len(review_findings),
                 "expected_denial_count": len(expected_denials),
                 "total_confirmed_count": len(mapping_ready),
                 "mapping_ready_count": len(mapping_ready),
+                "threat_compliance_context_count": len(
+                    threat_compliance_context
+                ),
             },
             "consistency_checks": self._build_consistency_checks(
                 confirmed_static=confirmed_static,
                 confirmed_dynamic=confirmed_dynamic,
+                confirmed_shadow=confirmed_shadow,
                 review_findings=review_findings,
                 mapping_ready=mapping_ready,
+                threat_compliance_context=threat_compliance_context,
             ),
         }
 
@@ -736,6 +768,111 @@ class AnalystFindingsPostProcessor:
         )
 
     # ------------------------------------------------------------------
+    # Confirmed Shadow API findings
+    # ------------------------------------------------------------------
+
+    def _load_shadow_candidate_validation(self) -> Dict[str, Any]:
+
+        if not self.shadow_candidate_validation_path.exists():
+            return {
+                "candidate_count": 0,
+                "confirmed_count": 0,
+                "rejected_count": 0,
+                "confirmed_candidates": [],
+                "rejected_candidates": [],
+            }
+
+        return self._load_json(
+            self.shadow_candidate_validation_path
+        )
+
+    def _build_confirmed_shadow_findings(
+        self,
+        validation: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+
+        confirmed_candidates = [
+            item
+            for item in validation.get("confirmed_candidates", [])
+            if isinstance(item, dict)
+            and item.get("validation_status")
+            == "CONFIRMED_AGAINST_OPENAPI_BASELINE"
+        ]
+
+        confirmed_candidates = sorted(
+            confirmed_candidates,
+            key=lambda item: (
+                str(item.get("method", "")),
+                str(item.get("path", "")),
+            ),
+        )
+
+        findings: List[Dict[str, Any]] = []
+
+        for index, candidate in enumerate(
+            confirmed_candidates,
+            start=1,
+        ):
+
+            method = self._normalise_method(
+                candidate.get("method")
+            )
+
+            endpoint = self._normalise_endpoint(
+                candidate.get("path")
+            )
+
+            finding = {
+                "canonical_id": f"SHADOW-{index:02d}",
+                "final_status": "confirmed_shadow_api",
+                "mapping_ready": False,
+                "threat_compliance_context_ready": True,
+                "finding_type": "SHADOW_API",
+                "finding_mode": "runtime_openapi_reconciliation",
+                "test_id": f"SHADOW-{index:02d}",
+                "endpoint": endpoint,
+                "http_method": method,
+                "authorization_outcome": None,
+                "authorization_finding": None,
+                "vulnerability_decision": "confirmed_shadow_api",
+                "baseline_comparison": "path_not_documented_in_openapi",
+                "classification": candidate.get("classification"),
+                "reconciliation_rule": candidate.get(
+                    "reconciliation_rule"
+                ),
+                "validation_status": candidate.get(
+                    "validation_status"
+                ),
+                "validation_checks": candidate.get(
+                    "validation_checks",
+                    {},
+                ),
+                "runtime_evidence": candidate.get(
+                    "runtime_evidence",
+                    {},
+                ),
+                "related_evidence": [
+                    {
+                        "source": "shadow_candidate_validation",
+                        "endpoint": endpoint,
+                        "http_method": method,
+                        "validation_status": candidate.get(
+                            "validation_status"
+                        ),
+                    }
+                ],
+                "reason": (
+                    "Shadow API endpoint confirmed by deterministic "
+                    "runtime/OpenAPI reconciliation and validation."
+                ),
+                "source_item": candidate,
+            }
+
+            findings.append(finding)
+
+        return findings
+
+    # ------------------------------------------------------------------
     # Consistency checks
     # ------------------------------------------------------------------
 
@@ -743,8 +880,10 @@ class AnalystFindingsPostProcessor:
         self,
         confirmed_static: List[Dict[str, Any]],
         confirmed_dynamic: List[Dict[str, Any]],
+        confirmed_shadow: List[Dict[str, Any]],
         review_findings: List[Dict[str, Any]],
         mapping_ready: List[Dict[str, Any]],
+        threat_compliance_context: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         checks = []
 
@@ -794,6 +933,47 @@ class AnalystFindingsPostProcessor:
                 "passed": len({item["canonical_id"] for item in mapping_ready})
                 == len(mapping_ready),
                 "message": "Mapping-ready finding IDs are unique.",
+            }
+        )
+
+        checks.append(
+            {
+                "name": "shadow_findings_not_in_bola_bfla_mapping_ready",
+                "passed": all(
+                    item.get("finding_type") == "SHADOW_API"
+                    and not item.get("mapping_ready")
+                    for item in confirmed_shadow
+                ),
+                "message": (
+                    "Confirmed Shadow API findings are preserved outside "
+                    "the BOLA/BFLA mapping_ready_findings collection."
+                ),
+            }
+        )
+
+        checks.append(
+            {
+                "name": "unique_confirmed_shadow_ids",
+                "passed": (
+                    len({item["canonical_id"] for item in confirmed_shadow})
+                    == len(confirmed_shadow)
+                ),
+                "message": "Confirmed Shadow API finding IDs are unique.",
+            }
+        )
+
+        checks.append(
+            {
+                "name": "threat_compliance_context_count",
+                "passed": (
+                    len(threat_compliance_context)
+                    == len(mapping_ready) + len(confirmed_shadow)
+                ),
+                "message": (
+                    f"context={len(threat_compliance_context)}, "
+                    f"mapping_ready={len(mapping_ready)}, "
+                    f"shadow={len(confirmed_shadow)}"
+                ),
             }
         )
 

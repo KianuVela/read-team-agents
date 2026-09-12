@@ -15,6 +15,10 @@ class ComplianceMappingPostProcessor:
             "category_id": "API5:2023",
             "category_name": "Broken Function Level Authorization",
         },
+        "SHADOW_API": {
+            "category_id": "API9:2023",
+            "category_name": "Improper Inventory Management",
+        },
     }
 
     ALLOWED_NIS2_ARTICLES = {
@@ -60,9 +64,14 @@ class ComplianceMappingPostProcessor:
         )
 
         authoritative_findings = findings_document.get(
-            "mapping_ready_findings",
-            [],
+            "threat_compliance_context_findings"
         )
+
+        if authoritative_findings is None:
+            authoritative_findings = findings_document.get(
+                "mapping_ready_findings",
+                [],
+            )
 
         draft_mappings = self._extract_draft_mappings(
             draft_document
@@ -124,9 +133,14 @@ class ComplianceMappingPostProcessor:
             validated_mappings
         )
 
-        expected_count = findings_document[
+        metadata = findings_document[
             "metadata"
-        ]["mapping_ready_count"]
+        ]
+
+        expected_count = metadata.get(
+            "threat_compliance_context_count",
+            metadata["mapping_ready_count"],
+        )
 
         consistency_checks = (
             self._build_consistency_checks(
@@ -254,10 +268,12 @@ class ComplianceMappingPostProcessor:
                 ],
                 "authorization_class": expected_type,
 
-                # Only rationale comes from LLM.
-                "rationale": draft_owasp.get(
-                    "rationale",
-                    "",
+                "rationale": self._build_owasp_rationale(
+                    finding=finding,
+                    draft_owasp=draft_owasp,
+                    expected_type=expected_type,
+                    expected_owasp=expected_owasp,
+                    owasp_corrected=owasp_corrected,
                 ),
             },
 
@@ -267,6 +283,53 @@ class ComplianceMappingPostProcessor:
         }
 
     # A regra que elimina definitivamente a oscilação BOLA/BFLA
+    def _build_owasp_rationale(
+        self,
+        finding: Dict[str, Any],
+        draft_owasp: Dict[str, Any],
+        expected_type: str,
+        expected_owasp: Dict[str, str],
+        owasp_corrected: bool,
+    ) -> str:
+
+        draft_rationale = str(
+            draft_owasp.get("rationale", "")
+        ).strip()
+
+        if not owasp_corrected and draft_rationale:
+            return draft_rationale
+
+        endpoint = finding.get("endpoint")
+        method = finding.get("http_method")
+        canonical_id = finding.get("canonical_id")
+
+        if expected_type == "BOLA":
+            return (
+                f"{canonical_id} was deterministically validated as a BOLA finding "
+                f"on {method} {endpoint}; therefore it maps to "
+                f"{expected_owasp['category_id']} - {expected_owasp['category_name']}."
+            )
+
+        if expected_type == "BFLA":
+            return (
+                f"{canonical_id} was deterministically validated as a BFLA finding "
+                f"on {method} {endpoint}; therefore it maps to "
+                f"{expected_owasp['category_id']} - {expected_owasp['category_name']}."
+            )
+
+        if expected_type == "SHADOW_API":
+            return (
+                f"{canonical_id} was deterministically validated as a Shadow API "
+                f"finding on {method} {endpoint}; therefore it maps to "
+                f"{expected_owasp['category_id']} - {expected_owasp['category_name']}."
+            )
+
+        return (
+            f"{canonical_id} was deterministically mapped to "
+            f"{expected_owasp['category_id']} - {expected_owasp['category_name']}."
+        )
+
+
     def _resolve_finding_type(
         self,
         finding: Dict[str, Any],
@@ -297,7 +360,7 @@ class ComplianceMappingPostProcessor:
         ):
             return "BFLA"
 
-        if finding_type in {"BOLA", "BFLA"}:
+        if finding_type in {"BOLA", "BFLA", "SHADOW_API"}:
             return finding_type
 
         if test_id.startswith("BOLA"):
@@ -309,7 +372,8 @@ class ComplianceMappingPostProcessor:
         raise ValueError(
             "Cannot deterministically determine "
             f"BOLA/BFLA classification for {finding.get('canonical_id')}. "
-            "finding_type or test_id must be preserved upstream."
+            "finding_type must be BOLA, BFLA, or SHADOW_API, "
+            "or test_id must preserve BOLA/BFLA provenance upstream."
         )
 
     # MITRE passa a ser reconciliado deterministicamente
@@ -460,6 +524,12 @@ class ComplianceMappingPostProcessor:
             if item["finding_type"] == "BFLA"
         )
 
+        shadow_api_count = sum(
+            1
+            for item in mappings
+            if item["finding_type"] == "SHADOW_API"
+        )
+
         direct_mitre_count = sum(
             1
             for item in mappings
@@ -480,6 +550,7 @@ class ComplianceMappingPostProcessor:
             "mapping_ready_count": total,
             "bola_count": bola_count,
             "bfla_count": bfla_count,
+            "shadow_api_count": shadow_api_count,
             "direct_mitre_count": direct_mitre_count,
             "no_direct_mitre_count": (
                 total - direct_mitre_count
@@ -531,15 +602,17 @@ class ComplianceMappingPostProcessor:
                 ),
             },
             {
-                "name": "bola_plus_bfla_equals_mapping_ready_count",
+                "name": "bola_bfla_shadow_equals_context_count",
                 "passed": (
                     summary["bola_count"]
                     + summary["bfla_count"]
+                    + summary["shadow_api_count"]
                     == expected_count
                 ),
                 "message": (
                     f"BOLA={summary['bola_count']}, "
                     f"BFLA={summary['bfla_count']}, "
+                    f"SHADOW_API={summary['shadow_api_count']}, "
                     f"expected={expected_count}"
                 ),
             },
@@ -676,6 +749,7 @@ class ComplianceMappingPostProcessor:
             f"- Total mapping-ready findings: `{summary['mapping_ready_count']}`",
             f"- API1:2023 BOLA count: `{summary['bola_count']}`",
             f"- API5:2023 BFLA count: `{summary['bfla_count']}`",
+            f"- API9:2023 Shadow API count: `{summary['shadow_api_count']}`",
             f"- Findings with direct defensible MITRE ATT&CK mapping: `{summary['direct_mitre_count']}`",
             f"- Findings with no direct defensible MITRE ATT&CK mapping: `{summary['no_direct_mitre_count']}`",
             f"- Findings with NIS2 relevance mapping: `{summary['nis2_mapped_count']}`",
@@ -769,7 +843,7 @@ class ComplianceMappingPostProcessor:
                 "## 6. Compliance conclusions",
                 "",
                 f"- Total findings mapped: `{summary['mapping_ready_count']}`",
-                f"- OWASP reconciliation: `BOLA {summary['bola_count']} + BFLA {summary['bfla_count']} = {summary['mapping_ready_count']}`",
+                f"- OWASP reconciliation: `BOLA {summary['bola_count']} + BFLA {summary['bfla_count']} + SHADOW_API {summary['shadow_api_count']} = {summary['mapping_ready_count']}`",
                 f"- MITRE reconciliation: `{summary['direct_mitre_count']} direct + {summary['no_direct_mitre_count']} no-direct = {summary['mapping_ready_count']}`",
                 f"- NIS2 reconciliation: `{summary['nis2_mapped_count']} mapped = {summary['mapping_ready_count']}`",
                 "",

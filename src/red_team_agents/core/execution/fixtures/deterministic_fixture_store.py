@@ -240,6 +240,15 @@ class DeterministicFixtureStore:
     ) -> tuple[str | None, Any]:
         endpoint = endpoint.lower()
 
+        # Vamos adicionar isso para eliminar o bloqueio entre o 
+        # deferred frontend templates e as fixtures deterministicas
+        endpoint = (
+            endpoint
+            .replace("<", "{")
+            .replace(">", "}")
+        )
+        # ===========================
+
         if "/vehicle/" in endpoint:
             return (
                 "user_a_vehicle_id",

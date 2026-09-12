@@ -13,6 +13,15 @@ from red_team_agents.tools.kali_mcp_tool import KaliMCPTool
 from red_team_agents.tools.execution_controller_tool import (
     ExecutionControllerTool,
 )
+from red_team_agents.tools.api_operation_discovery_pipeline_tool import (
+    APIOperationDiscoveryPipelineTool,
+)
+from red_team_agents.tools.shadow_api_reconciliation_pipeline_tool import (
+    ShadowAPIReconciliationPipelineTool,
+)
+from red_team_agents.tools.rag_retrieval_tool import (
+    RAGRetrievalTool,
+)
 
 #from tools.kali_mcp_tool import KaliMCPTool
 
@@ -43,9 +52,32 @@ class RedTeamAgents():
             memory=True,
             cache=True,
             allow_delegation=False,
-            max_iter=50,
+            # Reduce uncontrolled tool/LLM loops
+            max_iter=12,
+            # CrewAI will try to manage the context window
+            respect_context_window=True,
             max_execution_time=500,
             tools=[KaliMCPTool()]
+        )
+
+    @agent
+    def agent_api_operation_discovery(self) -> Agent:
+        return Agent(
+            config=self.agents_config[
+                "agent_api_operation_discovery"
+            ],
+            llm=llm,
+            verbose=True,
+            memory=True,
+            cache=True,
+            allow_delegation=False,
+            max_iter=12,
+            respect_context_window=True,
+            max_execution_time=500,
+            tools=[
+                KaliMCPTool(),
+                APIOperationDiscoveryPipelineTool(),
+                ]
         )
 
     @agent
@@ -75,7 +107,10 @@ class RedTeamAgents():
             verbose=True,
             memory=True,
             cache=True,
-            allow_delegation=False
+            allow_delegation=False,
+            tools=[ShadowAPIReconciliationPipelineTool()
+            ]
+
         )
 
     @agent
@@ -112,8 +147,9 @@ class RedTeamAgents():
             ],
             llm=llm,
             verbose=True,
-            memory=True,
-            cache=True,
+            memory=False,
+            cache=False,
+            max_iter=50,
             allow_delegation=False,
             tools=[
                 AuthenticationContextTool(),
@@ -149,10 +185,13 @@ class RedTeamAgents():
             ],
             llm=llm,
             verbose=True,
-            memory=True,
-            cache=True,
+            memory=False,
+            cache=False,
             allow_delegation=False,
-            tools=[FileReadTool()]
+            tools=[
+                FileReadTool(),
+                RAGRetrievalTool(),
+            ]
         )
 
 
@@ -162,6 +201,14 @@ class RedTeamAgents():
             config=self.tasks_config[
                 "attack_surface_discovery_task"
             ]
+        )
+
+    @task
+    def api_operation_discovery_task(self) -> Task:
+        return Task(
+            config=self.tasks_config[
+                "api_operation_discovery_task"
+            ],
         )
 
     @task
@@ -244,11 +291,8 @@ class RedTeamAgents():
 
         #return Crew(
             #agents=[self.agent_openapi_discovery()],
-
             #tasks=[self.openapi_discovery_task()],
-
             #process=Process.sequential,
-
             #verbose=True
         #)
 
@@ -257,16 +301,18 @@ class RedTeamAgents():
     #def attack_surface_test_crew(self) -> Crew:
 
         #return Crew(
-            #agents=[self.agent_attack_surface_discovery()],
-
-            #tasks=[self.attack_surface_discovery_task()],
-
+            #agents=[
+                #self.agent_attack_surface_discovery(),
+                #self.agent_api_operation_discovery()
+            #],
+           # tasks=[
+               # self.attack_surface_discovery_task(),
+               # self.api_operation_discovery_task()
+            #],
             #process=Process.sequential,
-
-            #verbose=True,
-
-            #memory=True
-    #)
+           # verbose=True,
+            #memory=False
+        #)
 
     # Testando a deteção de Shadow APIs
     #@crew
@@ -274,14 +320,10 @@ class RedTeamAgents():
 
         #return Crew(
             #agents=[self.agent_shadow_api_detection()],
-
             #tasks=[self.shadow_api_detection_task()],
-
             #process=Process.sequential,
-
             #verbose=True,
-
-            #memory=True
+           # memory=False
     #)
 
     # Testando o threat modeling para BOLA e BFLA
@@ -317,16 +359,15 @@ class RedTeamAgents():
     #)
 
     # Testando a o agente que fará a execução dos testes
-    #@crew
-   # def execution_test_crew(self) -> Crew:
-
-        #return Crew(
-         #   agents=[self.agent_execution()],
-          #  tasks=[self.execution_task()],
-          #  process=Process.sequential,
-          #  verbose=True, 
-           # memory=True
-    #)
+    @crew
+    def execution_test_crew(self) -> Crew:
+        return Crew(
+            agents=[self.agent_execution()],
+            tasks=[self.execution_task()],
+            process=Process.sequential,
+            verbose=True, 
+            memory=False
+    )
 
     # Testando apenas o Analyst Agent
     #@crew
@@ -340,15 +381,16 @@ class RedTeamAgents():
           #  memory=True
     #)
 
-    @crew
-    def compliance_and_threat_mapping_crew(self) -> Crew:
-        return Crew(
-            agents=[self.agent_compliance_and_threat_mapping()],
-            tasks=[self.compliance_and_threat_mapping_task()],
-            process=Process.sequential,
-            verbose=True,
-            memory=True
-        )
+    # Testando o complainace agent
+    # @crew
+    #def compliance_and_threat_mapping_crew(self) -> Crew:
+     #   return Crew(
+      #      agents=[self.agent_compliance_and_threat_mapping()],
+       #     tasks=[self.compliance_and_threat_mapping_task()],
+        #    process=Process.sequential,
+         #   verbose=True,
+          #  memory=False,
+        #)
 
 
     

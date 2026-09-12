@@ -16,6 +16,25 @@ agent_attack_surface_discovery:
   verbose: true
   allow_delegation: false
 
+agent_api_operation_discovery:
+  role: >
+    API Operation Discovery Specialist
+
+  goal: >
+    Perform deep active discovery of concrete API operations from the live
+    target, including API namespaces, nested resources, client-side route
+    references, and HTTP method evidence, independently from OpenAPI.
+
+  backstory: >
+    You specialise in identifying concrete REST API operations through active
+    runtime reconnaissance. You analyse live application behaviour, API
+    namespaces, frontend JavaScript references, and HTTP responses while
+    preserving evidence and provenance. You do not use OpenAPI as a discovery
+    source and you do not classify Shadow APIs.
+
+  verbose: true
+  allow_delegation: false
+
 
 agent_openapi_discovery:
   role: >
@@ -299,7 +318,7 @@ agent_compliance_and_threat_mapping:
     You do not execute HTTP requests, perform penetration testing, determine
     whether a vulnerability exists, or alter the validated finding set.
 
-    Your responsibility is strictly downstream mapping and interpretation.Não temos que e
+    Your responsibility is strictly downstream mapping and interpretation.
 
   verbose: true
   allow_delegation: false

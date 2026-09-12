@@ -174,8 +174,6 @@ attack_surface_discovery_task:
 
       Return valid JSON only.
       Do not include Markdown code fences or additional prose.
-      
-      Return the final JSON pretty-printed with an indentation of 2 spaces; do not return minified JSON on a single line.
 
    output_file: reports/attack_surface/attack_surface_inventory.json
 
@@ -184,8 +182,7 @@ attack_surface_discovery_task:
 
 api_operation_discovery_task:
    description: >
-      Execute the deterministic live API-operation discovery pipeline
-      against the controlled target application.
+      Perform deep active API operation discovery against the target application.
 
       Target host:
       {target_host}
@@ -193,112 +190,194 @@ api_operation_discovery_task:
       Target URL:
       {target_url}
 
-      Use the findings from attack_surface_discovery_task only as
-      reconnaissance context for the live target.
+      Use the findings from attack_surface_discovery_task as reconnaissance context.
 
-      ================================================================
+      IMPORTANT:
+      - Perform this discovery independently from the OpenAPI specification.
+      - Do NOT use the OpenAPI inventory to decide which endpoints to probe.
+      - The purpose of this task is to observe API operations directly from the live target.
+      - Do NOT classify any endpoint as Shadow API in this task.
 
-      PRIMARY EXECUTION RULE:
+      Use the Kali MCP Tool to perform active API-oriented discovery.
 
-      Use the api_operation_discovery_pipeline tool as the authoritative
-      mechanism for API-operation discovery.
+      =========================================================================
+      FRONTEND DISCOVERY FALLBACK:
 
-      Invoke it with:
+      - Use frontend_extract for the application root HTML first.
+      - If JavaScript assets are discovered, use frontend_extract on those assets.
+      - Do NOT use bash, python3, shell pipes, grep, head, sed, awk, or command chaining
+        through the Kali MCP Tool.
+      - Do NOT retrieve a complete JavaScript bundle with ordinary curl for LLM analysis.
+      - If frontend_extract returns zero API candidates, record that result as
+        "frontend_no_api_references" and immediately continue with active namespace
+        and resource enumeration.
+      - Do NOT repeatedly retry frontend extraction when no API route evidence is found.
+      - Absence of frontend route references MUST NOT terminate API discovery.
 
-      - target_url: {target_url}
-      - output_dir: reports/api_discovery
 
-      Do not provide frontend_extract_result_file during a normal live run.
-      The pipeline must perform the live frontend extraction automatically.
+      ================================================================================
 
-      The pipeline deterministically performs:
+      1. Discover API route candidates from live client-side application references.
 
-      1. Live frontend_extract against the application root.
-      2. Live frontend_extract against discovered JavaScript assets.
-      3. Frontend API-operation candidate normalization.
-      4. Safe read-only runtime probe planning.
-      5. Differential read-only runtime validation.
-      6. Controlled active-runtime probe planning where deterministic
-         inputs and dependencies are available.
-      7. Differential controlled active-runtime validation.
-      8. Aggregation of confirmed runtime evidence.
+      Inspect reachable HTML and JavaScript resources from the target application
+      for references to API routes.
 
-      ================================================================
+      IMPORTANT:
+      - This is active application-surface discovery, not OpenAPI-based discovery.
+      - Do NOT read or use the OpenAPI specification.
+      - Only use resources retrieved from the live target application.
 
-      METHODOLOGICAL BOUNDARY:
+      Search client-side resources for route-like references containing patterns such as:
+      - /api/
+      - /identity/
+      - /community/
+      - /workshop/
+      - /v1/
+      - /v2/
+      - /v3/
 
-      API-operation discovery MUST remain independent from documentation
-      and evaluation artefacts.
+      Extract candidate paths from:
+      - HTML source
+      - JavaScript bundles
+      - frontend configuration
+      - fetch calls
+      - XMLHttpRequest usage
+      - axios calls
+      - other client-side HTTP references
 
-      Therefore:
+      Treat these findings initially as resource candidates only.
 
-      - Do NOT use OpenAPI as a discovery input.
-      - Do NOT inspect the OpenAPI inventory.
-      - Do NOT use OpenAPI paths as probe candidates or wordlists.
-      - Do NOT use Ground Truth.
-      - Do NOT use previously generated Shadow API evaluation reports.
-      - Do NOT use vulnerability-test metadata to select discovery probes.
-      - Do NOT classify any operation as Shadow API in this task.
-      - Do NOT perform OWASP, MITRE ATT&CK, or NIS2 mapping here.
-      - Do NOT infer undocumented HTTP methods.
-      - Do NOT replace runtime evidence with LLM assumptions.
+      Every client-side candidate MUST subsequently be probed against the live
+      target before it can become an observed API operation.
 
-      OpenAPI reconciliation is a separate deterministic stage that occurs
-      only AFTER this discovery task has completed.
+      Record provenance as:
+      - discovery_method: "frontend_reference"
 
-      Ground Truth is reserved exclusively for evaluation and must never
-      influence discovery decisions.
+      Do not admit a frontend reference directly into "observed_api_operations"
+      without runtime confirmation.
 
-      ================================================================
+            ACTIVE API ENUMERATION STRATEGY:
 
-      TOOL-USAGE RULES:
+      After frontend discovery has completed or produced no useful API references,
+      continue with active runtime discovery.
 
-      When api_operation_discovery_pipeline completes successfully:
+      Work only against the controlled target defined by target_url.
 
-      - Do NOT repeat frontend_extract manually.
-      - Do NOT repeat the runtime GET probes manually.
-      - Do NOT manually reproduce POST or PUT active probes.
-      - Do NOT call Kali MCP tools merely to recreate evidence already
-        generated by the deterministic pipeline.
-      - Do NOT construct a second independent operation inventory from
-        reasoning or prose.
+      1. Start from the functional roots already observed during reconnaissance,
+         such as /identity, /community and /workshop.
 
-      The deterministic pipeline artefacts are the authoritative outputs.
+      2. Probe generic API namespace patterns, but do NOT exhaustively test every
+         possible combination before analysing results.
 
-      The canonical runtime-discovery evidence is:
+         Prioritise:
+         - /api
+         - /api/v1
+         - /api/v2
+         - /api/v3
+         - /rest
+         - /service
+         - /services
 
-      reports/api_discovery/runtime_evidence_aggregated.json
+      3. Use staged enumeration.
 
-      Supporting deterministic artefacts include:
+         For each functional root:
 
-      - reports/api_discovery/frontend_extract_result.json
-      - reports/api_discovery/frontend_operation_candidates.json
-      - reports/api_discovery/runtime_probe_plan.json
-      - reports/api_discovery/runtime_probe_results.json
-      - reports/api_discovery/active_runtime_probe_plan.json
-      - reports/api_discovery/active_runtime_probe_results.json
-      - reports/api_discovery/runtime_evidence_aggregated.json
+         functional_root
+             -> API namespace candidate
+             -> discovered child
+             -> deeper child
+             -> concrete route candidate
 
-      ================================================================
+         Continue deeper enumeration ONLY when the previous stage produces
+         evidence of a reachable or structurally meaningful API-like path.
 
-      FAILURE RULE:
+      4. Use Gobuster or equivalent directory enumeration directly through the
+         Kali MCP Tool.
 
-      If api_operation_discovery_pipeline fails:
+         Do NOT use:
+         - bash
+         - python3
+         - shell pipes
+         - grep
+         - head
+         - sed
+         - awk
+         - command chaining with && or ;
 
-      - Do NOT invent missing operations.
-      - Do NOT fall back to OpenAPI or Ground Truth.
-      - Preserve the failing stage and error returned by the tool.
-      - Report the pipeline execution as failed.
-      - Do not claim discovery completion.
+      5. Prefer a small number of productive recursive enumeration calls over
+         many individual curl probes of generic namespace combinations.
 
-      ================================================================
+      6. When Gobuster discovers a meaningful child path beneath an API-like
+         namespace, recursively enumerate that child when practical.
 
-      FINAL OUTPUT REQUIREMENTS:
+         Example generic progression:
 
-      The final task output is an execution manifest, not a second
-      independently generated API-operation inventory.
+         /functional-root/api
+             -> /v2
+             -> /resource
+             -> /nested-resource
 
-      Return valid JSON only.
+         These names are discovery examples only and MUST NOT come from OpenAPI
+         or Ground Truth.
+
+      7. Use curl only after candidate resource paths have been identified,
+         or when a namespace needs runtime confirmation.
+
+      8. Do NOT stop when an API namespace itself is found.
+         The objective is concrete resource and operation discovery.
+
+      9. Do NOT use OpenAPI, Ground Truth, server source code, container source
+         code or previously generated Ground Truth reports as discovery inputs.
+
+      10. Preserve every candidate's provenance and runtime evidence.
+
+      A. Probe discovered API-like paths with curl.
+
+      For every relevant API candidate, collect whenever possible:
+      - exact observed path
+      - HTTP method used
+      - HTTP status code
+      - response content type
+      - redirects
+      - authentication-related response behaviour
+      - relevant response headers
+      - whether JSON is returned
+      - concise response evidence
+
+      Preserve the exact path that was observed.
+
+      B. Perform conservative HTTP method probing when an API-like path is discovered.
+
+      Consider common HTTP methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - OPTIONS
+
+      IMPORTANT:
+      - Avoid destructive requests.
+      - Do not submit state-changing payloads unless they are already part of
+        the controlled testing workflow.
+      - OPTIONS or other non-destructive evidence should be preferred when
+        determining supported methods.
+      - A method must only be recorded as observed when there is supporting
+        runtime evidence.
+
+      C. Preserve provenance.
+
+      Every observed API operation must indicate how it was discovered, such as:
+      - api_namespace_probe
+      - gobuster_api_enumeration
+      - curl_probe
+      - options_probe
+      - frontend_reference
+      - other direct runtime evidence
+
+      MACHINE-READABLE OUTPUT REQUIREMENTS:
+
+      The final output MUST be valid JSON only.
 
       Do not wrap the JSON in Markdown code fences.
       Do not include explanatory prose before or after the JSON.
@@ -307,52 +386,117 @@ api_operation_discovery_task:
 
       {
         "target": {},
-        "pipeline": "deterministic_api_operation_discovery",
-        "status": null,
-        "methodological_boundary": {},
-        "artifacts": {},
+        "api_namespaces": [],
+        "observed_api_operations": [],
+        "excluded_resources": [],
         "summary": {}
       }
 
-      Populate the fields using only information returned by
-      api_operation_discovery_pipeline.
+      Each item in "observed_api_operations" must follow this structure
+      whenever the information is available:
 
-      IMPORTANT:
+      {
+        "path": "/example/api/v2/resource",
+        "method": "GET",
+        "status_code": 200,
+        "content_type": "application/json",
+        "auth_observed": null,
+        "source_tool": "curl",
+        "discovery_method": "curl_probe",
+        "api_namespace": "/example/api",
+        "version": "v2",
+        "redirect_location": null,
+        "evidence": {}
+      }
 
-      - Do NOT copy or reconstruct operations from memory.
-      - Do NOT fabricate counts.
-      - Do NOT normalize or alter deterministic evidence.
+      IMPORTANT DATA RULES:
+
+      - Never invent unavailable values.
+      - Use null when a value cannot be determined.
+      - Preserve concrete paths exactly as observed.
+      - Do NOT convert concrete IDs into placeholders.
+      - Do NOT normalize endpoint paths.
+      - Do NOT infer documentation status.
       - Do NOT classify Shadow APIs.
-      - Do NOT compare the results with OpenAPI.
-      - The operation-level evidence remains in
-        runtime_evidence_aggregated.json.
+      - Do NOT perform OWASP mapping.
+      - Do NOT perform MITRE ATT&CK mapping.
+      - Do NOT perform NIS2 mapping.
+      - Do NOT use the OpenAPI specification as a discovery wordlist.
+      - Record only operations supported by direct runtime evidence.
+
+      Resources that are reachable but do not have sufficient evidence to be
+      treated as API operations should be placed in "excluded_resources"
+      rather than "observed_api_operations".
+
+      API OPERATION ADMISSION RULES:
+
+      A discovered resource MUST NOT be added to "observed_api_operations"
+      merely because it is reachable, redirects, returns 401/403/404/502,
+      or appears to be an application root.
+
+      Top-level roots such as:
+      - /identity
+      - /community
+      - /workshop
+
+      are discovery starting points and MUST remain in "api_namespaces"
+      unless a concrete API operation is independently identified below them.
+
+      A resource should be admitted to "observed_api_operations" only when
+      there is direct evidence of a concrete API route or operation, such as:
+
+      - a path below a confirmed or strongly supported API namespace;
+      - a concrete nested REST-like resource path;
+      - JSON/API runtime behaviour associated with a specific resource route;
+      - a route discovered through active enumeration;
+      - a route referenced by client-side application code and confirmed live;
+      - direct runtime traffic revealing the route;
+      - reliable method evidence for that concrete route.
+
+      Error responses alone are NOT sufficient evidence of an API operation.
+
+      Specifically:
+      - 404 alone does not establish an API operation;
+      - 502 alone does not establish an API operation;
+      - 401/403 at a top-level application root does not establish a concrete
+        API operation;
+      - OPTIONS against a top-level root does not by itself establish an
+        API operation.
+
+      When evidence is insufficient, keep the resource in "api_namespaces"
+      or "excluded_resources".
 
    expected_output: >
-      A valid machine-readable JSON execution manifest confirming the
-      result of the deterministic API-operation discovery pipeline.
+      A valid machine-readable JSON object containing independently observed
+      API namespaces and API operations discovered directly from the live target.
 
       The JSON must contain:
-
       - target
-      - pipeline
-      - status
-      - methodological_boundary
-      - artifacts
+      - api_namespaces
+      - observed_api_operations
+      - excluded_resources
       - summary
 
-      The manifest must reference the deterministic discovery artefacts,
-      including runtime_evidence_aggregated.json, without independently
-      reconstructing the observed operation inventory.
+      Each observed API operation must preserve, whenever available:
+      - exact observed path
+      - HTTP method
+      - status code
+      - content type
+      - authentication observation
+      - source tool
+      - discovery method
+      - API namespace
+      - API version
+      - redirect location
+      - supporting runtime evidence
 
       Return valid JSON only.
       Do not include Markdown code fences or additional prose.
 
-      Return the final JSON pretty-printed with an indentation of 2 spaces; do not return minified JSON on a single line.
-
    context:
       - attack_surface_discovery_task
 
-   output_file: reports/api_discovery/api_operation_discovery_run.json
+   output_file: reports/api_discovery/observed_api_operations.json
 
    agent: agent_api_operation_discovery
 
@@ -382,151 +526,200 @@ openapi_discovery_task:
 
 shadow_api_detection_task:
    description: >
-      Execute deterministic Shadow API reconciliation and validation
-      using independently observed runtime API evidence and the
-      documented OpenAPI inventory.
+    Analyse the relationship between the documented API inventory
+    and the live attack surface inventory in order to identify:
+    - documented API domains and documented API base paths
+    - live undocumented API-like resources
+    - possible shadow API candidates
+    - sensitive non-API web findings
+    - high-priority areas for deeper probing
 
-      ================================================================
+    You must use the following two artefacts as your primary inputs.
 
-      PRIMARY EXECUTION RULE:
+    ==================================================
+    DOCUMENTED API INVENTORY
+    ==================================================
+    {openapi_inventory}
 
-      Use the shadow_api_reconciliation_pipeline tool as the
-      authoritative mechanism for Shadow API classification.
+    ==================================================
+    LIVE ATTACK SURFACE INVENTORY
+    ==================================================
+    {attack_surface_inventory}
 
-      Invoke it with:
+    Your job is to compare what is documented in the OpenAPI
+    inventory against what was actually observed in the live
+    environment.
 
-      - runtime_evidence_file:
-        reports/api_discovery/runtime_evidence_aggregated.json
+    You must produce a conservative and evidence-based comparison.
 
-      - openapi_inventory_file:
-        outputs/discovery/openapi_inventory.json
+    ==================================================
+    REQUIRED ANALYSIS OUTPUT STRUCTURE
+    ==================================================
 
-      - output_dir:
-        reports/shadow_api
+    1. Documented API roots or service domains
+       - infer the major documented service domains from the
+         OpenAPI inventory
+       - examples may include identity, community, workshop, etc.
 
-      The deterministic pipeline performs:
+    2. Documented API base paths
+       - explicitly identify the main documented API base path
+         prefixes from the OpenAPI inventory
+       - examples may include:
+         - /identity/api/
+         - /community/api/
+         - /workshop/api/
+       - if there are important sub-prefixes or versioned families,
+         mention them briefly
 
-      1. Canonicalization of independently observed runtime operations.
-      2. Canonicalization of documented OpenAPI operations.
-      3. Deterministic runtime/OpenAPI reconciliation.
-      4. Classification of documented operations and Shadow API candidates.
-      5. Deterministic validation of Shadow endpoint candidates.
-      6. Automatic persistence of the reconciliation and validation artefacts.
+    3. Live application/API roots discovered
+       - identify the live top-level application roots discovered
+         during attack surface discovery
+       - examples may include /identity/, /community/, /workshop/
 
-      ================================================================
+    4. Live undocumented service/API-like resources
+       - list reachable live resources that appear functional,
+         service-related or API-adjacent, but are not clearly
+         represented in the OpenAPI inventory
+       - examples may include /health or /healthcare
+       - these are different from generic web assets or static files
 
-      METHODOLOGICAL BOUNDARY:
+    5. Live non-API web findings
+       - list live findings that are not APIs and not API-like
+         service endpoints, but are still relevant to the exposed
+         attack surface
+       - examples may include:
+         - /.env
+         - /robots.txt
+         - /index.html
+         - /images/
+         - /static/
+       - these should be treated separately from possible shadow API
+         findings
 
-      - Runtime API discovery has already been completed independently.
-      - OpenAPI may be used only as the documentation baseline for
-        post-discovery reconciliation.
-      - Do NOT use OpenAPI to perform additional API discovery.
-      - Do NOT use Ground Truth.
-      - Do NOT use evaluation metrics to influence classification.
-      - Do NOT manually invent or modify Shadow API classifications.
-      - Do NOT perform additional runtime probing in this task.
-      - Do NOT perform OWASP mapping here.
-      - Do NOT perform MITRE ATT&CK mapping here.
-      - Do NOT perform NIS2 mapping here.
+    6. Potential shadow API candidates
+       - identify roots/resources that may indicate undocumented or
+         insufficiently documented API exposure
+       - be conservative
+       - do NOT claim confirmed shadow APIs unless the evidence is
+         strong
 
-      Ground Truth remains reserved exclusively for the later evaluation
-      stage.
+       For each potential shadow API candidate, you MUST include
+       the following four elements:
 
-      MITRE ATT&CK and NIS2 contextualization occur only after the
-      deterministic Shadow API classification has completed.
+       1. Candidate
+          - the live root/resource being assessed
 
-      ================================================================
+       2. Live observation
+          - explain what was observed in the live attack surface
+          - examples:
+            - root reachable but returns 502
+            - live service-like endpoint returns 200 OK
+            - route exists but exact root returns 404
+            - undocumented health endpoint is exposed
 
-      AUTHORITATIVE ARTEFACTS:
+       3. Documented base path
+          - identify the most relevant documented API base path
+            from the OpenAPI inventory that is related to the
+            candidate
+          - examples:
+            - /identity/api/
+            - /community/api/
+            - /workshop/api/
+          - if there is no clearly related documented base path,
+            explicitly say so
 
-      The deterministic pipeline generates:
+       4. GAP
+          - explicitly describe the gap between the live observed
+            behavior/resource and the documented API structure
+          - examples of valid gap statements:
+            - "Live root exists, but only /identity/api/ is
+              documented; root-level behavior is not represented
+              in the OpenAPI inventory."
+            - "Endpoint behaves like a health/service endpoint,
+              but no equivalent documented API path exists."
+            - "Live route family appears exposed, but the exact
+              documented API base path does not explain the root
+              behavior observed in the live environment."
 
-      - reports/shadow_api/runtime_shadow_api_reconciliation.json
-      - reports/shadow_api/shadow_candidate_validation.json
+       Also include a confidence level for each candidate:
+       - High confidence
+       - Moderate confidence
+       - Low confidence
 
-      These files are the authoritative Shadow API reconciliation and
-      validation artefacts.
+    7. Sensitive or suspicious live findings
+       - identify the most important suspicious live findings,
+         whether API-related or not
+       - examples:
+         - exposed .env files
+         - undocumented health endpoints
+         - proxy/backend anomalies
+         - suspicious live routes
 
-      Do NOT independently reconstruct their operation-level contents.
+    8. Candidate areas for deeper probing
+       - prioritise the most relevant roots/resources for later
+         testing phases
 
-      ================================================================
+    ==================================================
+    CONFIDENCE MODEL
+    ==================================================
 
-      FAILURE RULE:
+    For each item in the following sections:
+    - Live undocumented service/API-like resources
+    - Potential shadow API candidates
+    - Sensitive or suspicious live findings
 
-      If shadow_api_reconciliation_pipeline fails:
+    assign a confidence level:
+    - High confidence
+    - Moderate confidence
+    - Low confidence
 
-      - Do NOT infer missing Shadow APIs.
-      - Do NOT substitute previous reports.
-      - Do NOT use Ground Truth.
-      - Preserve the failing stage and returned error.
-      - Report the pipeline execution as failed.
-      - Do not claim successful Shadow API classification.
+    Use the confidence labels conservatively:
+    - High confidence = clearly supported by direct evidence
+    - Moderate confidence = plausible and supported, but not fully
+      conclusive
+    - Low confidence = weak hypothesis or limited evidence
 
-      ================================================================
-
-      FINAL OUTPUT REQUIREMENTS:
-
-      The task output is an execution manifest, not a second independent
-      Shadow API report.
-
-      Return valid JSON only.
-
-      Return the final JSON pretty-printed with an indentation of 2 spaces;
-      do not return minified JSON on a single line.
-
-      Do not wrap the JSON in Markdown code fences.
-      Do not include explanatory prose before or after the JSON.
-
-      Use exactly this top-level structure:
-
-      {
-        "pipeline": "deterministic_shadow_api_reconciliation",
-        "status": null,
-        "methodological_boundary": {},
-        "inputs": {},
-        "artifacts": {},
-        "reconciliation": {},
-        "validation": {}
-      }
-
-      Populate all fields only from the result returned by
-      shadow_api_reconciliation_pipeline.
-
-      IMPORTANT:
-
-      - Do NOT fabricate counts.
-      - Do NOT alter deterministic classifications.
-      - Do NOT reconstruct candidates from memory.
-      - Do NOT perform additional Shadow API inference.
-      - Do NOT perform MITRE ATT&CK or NIS2 mapping in this task.
-
+    ==================================================
+    IMPORTANT ANALYSIS RULES
+    ==================================================
+    - Clearly distinguish between:
+      a) documented API exposure
+      b) live undocumented API-like resources
+      c) possible shadow API candidates
+      d) non-API web findings
+    - Use the documented inventory block above as the authoritative
+      source for documented API structure.
+    - Use the live attack surface inventory block above as the
+      authoritative source for observed live exposure.
+    - Where the evidence is suggestive but not conclusive, label it
+      as a hypothesis or candidate rather than a confirmed shadow API.
+    - If a finding is serious but not API-related (for example an
+      exposed .env file), keep it in the report, but do not
+      misclassify it as an API.
+      
    expected_output: >
-      A valid machine-readable JSON execution manifest containing:
-
-      - pipeline
-      - status
-      - methodological_boundary
-      - inputs
-      - artifacts
-      - reconciliation
-      - validation
-
-      The manifest must reference the deterministic reconciliation and
-      validation artefacts without independently reconstructing them.
-
-      Return valid JSON only.
-      Pretty-print the JSON using an indentation of 2 spaces.
-      Do not include Markdown code fences or additional prose.
-
-      Return the final JSON pretty-printed with an indentation of 2 spaces; do not return minified JSON on a single line.
+    Markdown report containing:
+    - Documented API roots or service domains
+    - Documented API base paths
+    - Live application/API roots discovered
+    - Live undocumented service/API-like resources
+    - Live non-API web findings
+    - Potential shadow API candidates
+      (each candidate must include:
+       Candidate, Live observation, Documented base path,
+       GAP, Confidence)
+    - Sensitive or suspicious live findings
+    - Candidate areas for deeper probing
+    - Overall shadow API assessment summary
 
    context:
-      - api_operation_discovery_task
+      - attack_surface_discovery_task
       - openapi_discovery_task
 
-   output_file: reports/shadow_api/shadow_api_reconciliation_run.json
+   output_file: reports/shadow_api_detection_report.md
 
    agent: agent_shadow_api_detection
+
 
 threat_modeling_task:
    description: >
@@ -937,43 +1130,6 @@ execution_task:
 
 
     ==================================================
-    AUTHORIZATION ATTACK DEFINITIONS (CRITICAL)
-    ==================================================
-
-    BOLA (Broken Object Level Authorization) = Horizontal Privilege Escalation
-    - The attacker remains with the same role/privilege level.
-    - The attack consists of changing the object identifier while keeping
-      the same authenticated identity and token.
-    - Goal: Access or manipulate another user's object
-      (vehicle, order, report, video, etc.).
-
-    Typical BOLA mutation pattern:
-    - Same endpoint
-    - Same HTTP method
-    - Same JWT token
-    - Different object_id (another user's resource)
-
-    BFLA (Broken Function Level Authorization) = Vertical Privilege Escalation
-    - The attacker tries to reach a higher-privileged function/endpoint.
-    - The attack consists of changing the path, role indicator, or function
-      while keeping a lower-privileged token.
-    - Goal: Execute administrative or privileged actions with a
-      standard user token.
-
-    Typical BFLA mutation pattern:
-    - Change path segment (e.g. /user/ → /admin/, /mechanic/, /management/)
-    - Or change HTTP method on a privileged function
-    - Keep the same low-privilege JWT token
-
-    Privilege Escalation in this context means:
-    - Horizontal → BOLA (same role, different object)
-    - Vertical   → BFLA (lower role accessing higher function)
-
-    These definitions must guide how execution evidence is interpreted
-    and described in the Execution Report.
-
-
-    ==================================================
     INPUT ARTEFACTS
     ==================================================
 
@@ -1136,14 +1292,6 @@ execution_task:
     describe them as execution-level or controller-level evidence
     outcomes rather than as final mapping-ready findings.
 
-    When describing authorization issues, clearly distinguish:
-
-    - BOLA / Horizontal Privilege Escalation
-      (same role, different object identifier)
-
-    - BFLA / Vertical Privilege Escalation
-      (lower privilege role accessing higher privilege function)
-
     Required sections:
 
     1. Execution scope
@@ -1164,9 +1312,7 @@ execution_task:
        - actor/context used;
        - observed HTTP behaviour;
        - controller-level authorization evidence;
-       - baseline comparison where available;
-       - classification of the issue as BOLA (Horizontal)
-         or BFLA (Vertical) Privilege Escalation when applicable.
+       - baseline comparison where available.
 
     4. Inconclusive or unavailable evidence
        - cases lacking sufficient execution context;
@@ -1356,225 +1502,205 @@ analyst_task:
 
 compliance_and_threat_mapping_task:
    description: >
-      Produce a structured Compliance and Threat Mapping Draft as valid JSON
-      only, based exclusively on:
+    Produce a structured Compliance and Threat Mapping Draft as valid JSON only,
+    based exclusively on:
 
-      outputs/analysis/validated_analyst_findings.json
+    outputs/analysis/validated_analyst_findings.json
 
-      ==================================================
+    ==================================================
+    AUTHORITATIVE INPUT
+    ==================================================
 
-      AUTHORITATIVE INPUT
+    Process only:
 
-      ==================================================
+    mapping_ready_findings
 
-      Process only:
+    These findings are already validated, normalized, deduplicated,
+    assigned canonical IDs, and marked mapping-ready.
 
-      threat_compliance_context_findings
+    Preserve exactly:
 
-      This collection is the consolidated set of validated findings prepared
-      by the Analyst post-processor for threat and compliance contextualization.
+    - canonical_id;
+    - final_status;
+    - finding_type;
+    - test_id;
+    - endpoint;
+    - HTTP method;
+    - vulnerability_decision;
+    - baseline_comparison;
+    - reason.
 
-      It may include:
+    Do not execute HTTP requests, revalidate vulnerabilities, recalculate
+    baseline comparisons, deduplicate findings, create findings, remove
+    findings, merge findings, split findings, change canonical IDs, change
+    final_status, change mapping_ready, alter confirmed totals, promote
+    review findings, or treat expected_denials as vulnerabilities.
 
-      - BOLA findings confirmed by authorization testing;
-      - BFLA findings confirmed by authorization testing;
-      - SHADOW_API findings confirmed by deterministic runtime/OpenAPI
-        reconciliation.
+    validated_analyst_findings.json remains authoritative for the existence,
+    identity, status, and number of findings.
 
-      Preserve exactly:
+    ==================================================
+    OUTPUT REQUIREMENT
+    ==================================================
 
-      - canonical_id;
-      - final_status;
-      - finding_type;
-      - test_id;
-      - endpoint;
-      - HTTP method;
-      - vulnerability_decision;
-      - baseline_comparison;
-      - reason.
+    Output valid pretty-printed JSON only, using indentation.
 
-      Do not execute HTTP requests, revalidate vulnerabilities, recalculate
-      baseline comparisons, deduplicate findings, create findings, remove
-      findings, merge findings, split findings, change canonical IDs, change
-      final_status, alter confirmed totals, promote review findings, or treat
-      expected_denials as vulnerabilities.
+    Do not output Markdown.
 
-      validated_analyst_findings.json remains authoritative for the existence,
-      identity, status, and number of findings.
+    Do not include explanatory prose outside the JSON object.
 
-      ==================================================
+    The JSON object must contain exactly:
 
-      OUTPUT REQUIREMENT
+    - source_file
+    - mappings
 
-      ==================================================
+    The mappings array must contain one object for each item in
+    mapping_ready_findings.
 
-      Output valid pretty-printed JSON only, using indentation of 2 spaces.
+    The number of mappings must equal metadata.mapping_ready_count.
 
-      Do not output Markdown.
+    ==================================================
+    REQUIRED JSON STRUCTURE
+    ==================================================
 
-      Do not include explanatory prose outside the JSON object.
+    Each mapping object must contain:
 
-      The JSON object must contain exactly:
+    - canonical_id
+    - owasp
+    - mitre_attack
+    - nis2
 
-      - source_file
-      - mappings
+    OWASP object:
 
-      The mappings array must contain one object for each item in
-      threat_compliance_context_findings.
+    - category_id
+    - category_name
+    - rationale
 
-      The number of mappings must equal
-      metadata.threat_compliance_context_count.
+    MITRE ATT&CK object:
 
-      ==================================================
+    - direct_mapping
+    - techniques
+    - rationale
 
-      REQUIRED JSON STRUCTURE
+    NIS2 object:
 
-      ==================================================
+    - primary
+    - secondary
 
-      Each mapping object must contain:
+    NIS2 primary object:
 
-      - canonical_id
-      - owasp
-      - mitre_attack
-      - nis2
+    - article
+    - security_measure
+    - relevance
+    - rationale
 
-      OWASP object:
+    NIS2 secondary must be an array of objects containing:
 
-      - category_id
-      - category_name
-      - rationale
+    - article
+    - security_measure
+    - relevance
+    - rationale
 
-      MITRE ATT&CK object:
+    ==================================================
+    OWASP API SECURITY TOP 10 2023
+    ==================================================
 
-      - direct_mapping
-      - techniques
-      - rationale
+    Map authorization findings primarily to:
 
-      NIS2 object:
+    API1:2023 - Broken Object Level Authorization
 
-      - primary
-      - secondary
+    when the evidence demonstrates unauthorized access to or interaction
+    with a specific protected object or resource through an object identifier.
 
-      NIS2 primary object:
+    OR:
 
-      - article
-      - security_measure
-      - relevance
-      - rationale
+    API5:2023 - Broken Function Level Authorization
 
-      NIS2 secondary must be an array of objects containing:
+    when the evidence demonstrates unauthorized access to a privileged,
+    role-restricted, administrative, management, or protected function.
 
-      - article
-      - security_measure
-      - relevance
-      - rationale
+    Use finding_type and test_id as the primary guide.
 
-      ==================================================
+    Do not invent additional OWASP categories.
 
-      OWASP API SECURITY TOP 10 2023
+    Normally assign one primary OWASP category.
 
-      ==================================================
+    ==================================================
+    MITRE ATT&CK
+    ==================================================
 
-      Use finding_type as the primary guide.
+    Map a MITRE ATT&CK technique only when the validated evidence directly
+    demonstrates behaviour described by that technique.
 
-      Map:
+    Do not map an authorization vulnerability to ATT&CK merely because an
+    attacker could theoretically exploit it.
 
-      - BOLA to API1:2023 - Broken Object Level Authorization;
-      - BFLA to API5:2023 - Broken Function Level Authorization;
-      - SHADOW_API to API9:2023 - Improper Inventory Management.
+    Do not infer credential theft, token theft, privilege escalation, lateral
+    movement, persistence, or account compromise unless explicitly supported
+    by the validated evidence.
 
-      Do not invent additional OWASP categories.
+    If no defensible mapping exists, use:
 
-      Normally assign one primary OWASP category.
+    {
+      "direct_mapping": false,
+      "techniques": [],
+      "rationale": "No direct defensible MITRE ATT&CK mapping identified from the validated evidence."
+    }
 
-      ==================================================
+    ==================================================
+    NIS2 - DIRECTIVE (EU) 2022/2555
+    ==================================================
 
-      MITRE ATT&CK
+    Map each validated finding to the most directly relevant cybersecurity
+    risk-management measure in Article 21(2) of Directive (EU) 2022/2555.
 
-      ==================================================
+    For BOLA and BFLA authorization weaknesses, normally use as primary:
 
-      Map a MITRE ATT&CK technique only when the validated evidence directly
-      demonstrates behaviour described by that technique.
+    Article 21(2)(i)
+    - human resources security;
+    - access control policies;
+    - asset management.
 
-      Do not map a finding to ATT&CK merely because an attacker could
-      theoretically exploit it.
+    Where technically justified, use as secondary:
 
-      Do not infer credential theft, token theft, privilege escalation, lateral
-      movement, persistence, or account compromise unless explicitly supported
-      by the validated evidence.
+    Article 21(2)(e)
+    - security in network and information systems acquisition,
+      development and maintenance, including vulnerability handling
+      and disclosure;
 
-      If no defensible mapping exists, use:
+    Article 21(2)(a)
+    - policies on risk analysis and information system security;
 
-      {
-        "direct_mapping": false,
-        "techniques": [],
-        "rationale": "No direct defensible MITRE ATT&CK mapping identified from the validated evidence."
-      }
+    Article 21(2)(f)
+    - policies and procedures to assess the effectiveness of cybersecurity
+      risk-management measures.
 
-      ==================================================
+    Do not map to Article 21(2)(j) unless the evidence specifically concerns
+    MFA, continuous authentication, or secure communications.
 
-      NIS2 - DIRECTIVE (EU) 2022/2555
+    Do not state that a finding constitutes a NIS2 violation, infringement,
+    or legal non-compliance.
 
-      ==================================================
+    The mapping expresses cybersecurity risk-management relevance, not a
+    legal determination.
 
-      Map each validated finding to the most directly relevant cybersecurity
-      risk-management measure in Article 21(2) of Directive (EU) 2022/2555.
+    ==================================================
+    FINAL RULE
+    ==================================================
 
-      For BOLA and BFLA authorization weaknesses, normally use as primary:
+    This phase proposes framework mappings only.
 
-      Article 21(2)(i)
-      - human resources security;
-      - access control policies;
-      - asset management.
-
-      For SHADOW_API findings, normally use as primary:
-
-      Article 21(2)(e)
-      - security in network and information systems acquisition,
-        development and maintenance, including vulnerability handling
-        and disclosure.
-
-      Where technically justified, use as secondary:
-
-      Article 21(2)(a)
-      - policies on risk analysis and information system security;
-
-      Article 21(2)(f)
-      - policies and procedures to assess the effectiveness of cybersecurity
-        risk-management measures;
-
-      Article 21(2)(i)
-      - access control policies and asset management.
-
-      Do not map to Article 21(2)(j) unless the evidence specifically concerns
-      MFA, continuous authentication, or secure communications.
-
-      Do not state that a finding constitutes a NIS2 violation, infringement,
-      or legal non-compliance.
-
-      The mapping expresses cybersecurity risk-management relevance, not a
-      legal determination.
-
-      ==================================================
-
-      FINAL RULE
-
-      ==================================================
-
-      This phase proposes framework mappings only.
-
-      The ComplianceMappingPostProcessor will deterministically validate,
-      correct, reconcile, and generate the final compliance report.
+    The ComplianceMappingPostProcessor will deterministically validate,
+    correct, reconcile, and generate the final compliance report.
 
    expected_output: >
       Valid JSON object only, containing source_file and mappings.
       Each mapping must contain canonical_id, owasp, mitre_attack, and nis2.
-      The mappings array must contain one mapping for each item in
-      threat_compliance_context_findings.
       No Markdown and no explanatory prose outside the JSON object.
-      Pretty-print the JSON using an indentation of 2 spaces.
 
    output_file: outputs/compliance/compliance_mapping_draft.json
 
    agent: agent_compliance_and_threat_mapping
 
+
+   
